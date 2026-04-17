@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RemoteCamera — Vigilancia</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:        #0a0c0e;
+            --panel:     #111417;
+            --border:    #1e2329;
+            --green:     #00e676;
+            --green-dim: #00804040;
+            --red:       #ff3d3d;
+            --amber:     #ffa726;
+            --text:      #c8cdd4;
+            --text-dim:  #4a5060;
+            --mono:      'Share Tech Mono', monospace;
+            --sans:      'Barlow', sans-serif;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+        }
+        
+        /* ── HEADER ── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 28px;
+            border-bottom: 1px solid var(--border);
+            background: var(--panel);
+        }
+        .logo {
+            font-family: var(--mono);
+            font-size: 1.15rem;
+            letter-spacing: .12em;
+            color: var(--green);
+        }
+        .logo span { color: var(--text-dim); font-size: .8em; }
+        .header-meta {
+            font-family: var(--mono);
+            font-size: .75rem;
+            color: var(--text-dim);
+            text-align: right;
+            line-height: 1.7;
+        }
+        #clock { color: var(--text); }
+        
+        /* ── MAIN GRID ── */
+        main {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 1px;
+            background: var(--border);
+            overflow: hidden;
+        }
+        
+        /* ── FEED ── */
+        .feed-wrap {
+            background: #000;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #feed {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+        .motion-flash {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            border: 4px solid transparent;
+            transition: border-color .15s;
+        }
+        .motion-flash.active { border-color: var(--red); }
+        
+        /* Scan-line texture */
+        .feed-wrap::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(0,0,0,.08) 2px,
+            rgba(0,0,0,.08) 4px
+            );
+            pointer-events: none;
+        }
+        
+        /* ── SIDE PANEL ── */
+        .sidebar {
+            background: var(--panel);
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+        .panel-block {
+            padding: 18px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+        .panel-label {
+            font-family: var(--mono);
+            font-size: .65rem;
+            letter-spacing: .15em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+        
+        /* Status badges */
+        .status-row { display: flex; flex-direction: column; gap: 8px; }
+        .badge {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: var(--mono);
+            font-size: .78rem;
+        }
+        .dot {
+            width: 9px; height: 9px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            background: var(--text-dim);
+        }
+        .dot.ok  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .dot.alert { background: var(--red); box-shadow: 0 0 8px var(--red); animation: pulse 1s infinite; }
+        .dot.rec { background: var(--red); animation: pulse .6s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+        
+        /* Stats */
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .stat-item { text-align: center; }
+        .stat-val {
+            font-family: var(--mono);
+            font-size: 1.4rem;
+            color: var(--green);
+            display: block;
+        }
+        .stat-key {
+            font-size: .68rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: .08em;
+        }
+        
+        /* Event log */
+        .event-list {
+            max-height: 180px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+        .event-item {
+            display: flex;
+            gap: 10px;
+            padding: 5px 0;
+            font-family: var(--mono);
+            font-size: .72rem;
+            border-bottom: 1px solid var(--border);
+            animation: slideIn .3s ease;
+        }
+        @keyframes slideIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
+        .event-time { color: var(--text-dim); flex-shrink: 0; }
+        .event-label { color: var(--amber); }
+        
+        /* Recordings */
+        .rec-list {
+            max-height: 150px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+        .rec-item {
+            font-size: .72rem;
+            font-family: var(--mono);
+            color: var(--text-dim);
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        /* ── FOOTER ── */
+        footer {
+            padding: 8px 28px;
+            border-top: 1px solid var(--border);
+            background: var(--panel);
+            font-family: var(--mono);
+            font-size: .65rem;
+            color: var(--text-dim);
+            display: flex;
+            justify-content: space-between;
+        }
+        #uptime-val { color: var(--text); }
+        
+        /* ── RESPONSIVE ── */
+        @media (max-width: 768px) {
+            main { grid-template-columns: 1fr; grid-template-rows: auto auto; }
+            .sidebar { flex-direction: row; flex-wrap: wrap; overflow-x: auto; }
+            .panel-block { min-width: 200px; flex: 1; }
+        }
+    </style>
+</head>
+<body>
+    
+    <header>
+        <div class="logo">RemoteCamera <span>// VIGILANCIA DOMÉSTICA</span></div>
+        <div class="header-meta">
+            <div id="clock">--:--:--</div>
+            <div id="date-display"></div>
+        </div>
+    </header>
+    
+    <main>
+        <!-- ── FEED ─────────────────────────────── -->
+        <div class="feed-wrap">
+            <video id="feed" autoplay playsinline muted></video>
+            <div class="motion-flash" id="motion-flash"></div>
+        </div>
+        
+        <!-- ── SIDEBAR ───────────────────────────── -->
+        <div class="sidebar">
+            
+            <!-- Estado -->
+            <div class="panel-block">
+                <div class="panel-label">Estado del sistema</div>
+                <div class="status-row">
+                    <div class="badge"><div class="dot ok" id="dot-live"></div><span id="lbl-live">EN VIVO</span></div>
+                    <div class="badge"><div class="dot" id="dot-motion"></div><span id="lbl-motion">Sin movimiento</span></div>
+                    <div class="badge"><div class="dot" id="dot-rec"></div><span id="lbl-rec">Sin grabar</span></div>
+                </div>
+            </div>
+            
+            <!-- Estadísticas -->
+            <div class="panel-block">
+                <div class="panel-label">Estadísticas</div>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <span class="stat-val" id="stat-events">0</span>
+                        <span class="stat-key">Alertas</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-val" id="stat-uptime">00:00</span>
+                        <span class="stat-key">Activo</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Registro de eventos -->
+            <div class="panel-block">
+                <div class="panel-label">Registro de eventos</div>
+                <div class="event-list" id="event-list">
+                    <div class="event-item"><span class="event-time">--:--:--</span><span class="event-label">Sin eventos aún</span></div>
+                </div>
+            </div>
+            
+            <!-- Grabaciones -->
+            <div class="panel-block">
+                <div class="panel-label">Últimas grabaciones</div>
+                <div class="rec-list" id="rec-list">
+                    <div class="rec-item">Sin grabaciones aún</div>
+                </div>
+            </div>
+            
+        </div>
+    </main>
+    
+    <footer>
+        <span>Puerto 8080 · WebRTC stream</span>
+        <span>Tiempo activo: <span id="uptime-val">--</span></span>
+    </footer>
+    
+    <script>
+        // ── Reloj ───────────────────────────────────
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').textContent =
+            now.toTimeString().slice(0, 8);
+            document.getElementById('date-display').textContent =
+            now.toLocaleDateString('es-ES', {weekday:'short', day:'2-digit', month:'short', year:'numeric'});
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+        
+        // ── WebRTC stream setup ─────────────────────
+        const pc = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+
+        pc.ontrack = event => {
+            const video = document.getElementById('feed');
+            video.srcObject = event.streams[0];
+        };
+
+        pc.oniceconnectionstatechange = () => {
+            const state = pc.iceConnectionState;
+            if (state === 'failed' || state === 'disconnected') {
+                console.warn('WebRTC connection state:', state);
+            }
+        };
+
+        pc.addTransceiver('video', { direction: 'recvonly' });
+
+        async function startWebRTC() {
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                const r = await fetch('/offer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sdp: offer.sdp, type: offer.type })
+                });
+
+                const answer = await r.json();
+                await pc.setRemoteDescription(answer);
+            } catch (e) {
+                console.error('WebRTC setup failed:', e);
+            }
+        }
+
+        startWebRTC();
+        
+        // ── Polling de estado ────────────────────────
+        async function fetchStatus() {
+            try {
+                const r = await fetch('/api/status');
+                const d = await r.json();
+                
+                // Movimiento
+                const flash  = document.getElementById('motion-flash');
+                const dotM   = document.getElementById('dot-motion');
+                const lblM   = document.getElementById('lbl-motion');
+                if (d.motion) {
+                    flash.classList.add('active');
+                    dotM.classList.add('alert');
+                    lblM.textContent = '⚠ MOVIMIENTO DETECTADO';
+                    lblM.style.color = 'var(--red)';
+                } else {
+                    flash.classList.remove('active');
+                    dotM.classList.remove('alert');
+                    lblM.textContent = 'Sin movimiento';
+                    lblM.style.color = '';
+                }
+                
+                // Grabación
+                const dotR = document.getElementById('dot-rec');
+                const lblR = document.getElementById('lbl-rec');
+                if (d.recording) {
+                    dotR.classList.add('rec');
+                    lblR.textContent = '⏺ Grabando';
+                    lblR.style.color = 'var(--red)';
+                } else {
+                    dotR.classList.remove('rec');
+                    lblR.textContent = 'Sin grabar';
+                    lblR.style.color = '';
+                }
+                
+                // Stats
+                document.getElementById('stat-events').textContent = d.total_events;
+                document.getElementById('stat-uptime').textContent = d.uptime.slice(0,5);
+                document.getElementById('uptime-val').textContent  = d.uptime;
+                
+                // Eventos
+                if (d.events && d.events.length > 0) {
+                    const list = document.getElementById('event-list');
+                    list.innerHTML = d.events.map(e =>
+                        `<div class="event-item">
+                            <span class="event-time">${e.time}</span>
+                            <span class="event-label">Movimiento detectado</span>
+                        </div>`
+                    ).join('');
+                }
+            } catch(e) { /* servidor no disponible */ }
+        }
+
+        async function fetchRecordings() {
+            try {
+                const r = await fetch('/api/recordings');
+                const d = await r.json();
+                const el = document.getElementById('rec-list');
+                if (d.length === 0) {
+                    el.innerHTML = '<div class="rec-item">Sin grabaciones aún</div>';
+                } else {
+                    el.innerHTML = d.map(f =>
+                    `<div class="rec-item" title="${f.name}">📹 ${f.name} · ${f.size}</div>`
+                    ).join('');
+                }
+            } catch(e) {}
+        }
+        
+        setInterval(fetchStatus,     1500);
+        setInterval(fetchRecordings, 10000);
+        fetchStatus();
+        fetchRecordings();
+    </script>
+</body>
+</html>
