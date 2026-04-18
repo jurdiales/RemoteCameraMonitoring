@@ -2,7 +2,7 @@
 Remote Camera Monitoring System — Main Server
 Featuring a motion detection system and video recording
 =====================================================
-Requisites: pip install flask opencv-python numpy
+Requisites: pip install flask opencv-python numpy aiortc av
 Use: python server.py [options]
 Local Access: http://localhost:port
 Remote Access: http://<public-ip>:port
@@ -16,50 +16,50 @@ import os
 import argparse
 import asyncio
 
-from flask import Flask, Response, jsonify, render_template_string, request
+from flask import Flask, Response, jsonify, render_template_string
 import numpy as np
 from aiortc import RTCIceServer, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCConfiguration
 import av
 from utils import list_cameras
 
 # ─────────────────────────────────────────────
-#  CONFIGURACIÓN  (ajusta estos valores)
+#  SETTINGS
 # ─────────────────────────────────────────────
-CAMERA_INDEX        = 0         # 0 = main webcam, 1 = USB camera, etc.
-STREAM_WIDTH        = 1280      # ancho del video (ajusta si tu cámara no soporta esta resolución)
-STREAM_HEIGHT       = 720       # alto del video (ajusta si tu cámara no soporta esta resolución)
-STREAM_FPS          = 20        # fps del video
-FLASK_PORT          = 8090      # puerto para la interfaz web
+CAMERA_INDEX        = 0             # 0 = main webcam, 1 = USB camera, etc. (depens on the system)
+STREAM_WIDTH        = 1280          # frame width (adjust this setting if your camera doesn't support this resolution)
+STREAM_HEIGHT       = 720           # frame height (adjust this setting if your camera doesn't support this resolution)
+STREAM_FPS          = 20            # stream fps
+FLASK_PORT          = 8090          # port for the web interface
 
-# Detección de movimiento
-ENABLE_MOTION_DET   = False     # enable motion detection
-MOTION_THRESHOLD    = 4000      # área total de píxeles para considerar movimiento
-MIN_CONTOUR_AREA    = 400       # área mínima de un contorno individual
-RECORD_SECONDS      = 15        # segundos que sigue grabando tras detectar movimiento
-BLUR_KERNEL         = (21, 21)  # suavizado para reducir falsos positivos
-DILATION_KERNEL     = np.ones((5, 5), np.uint8)    # dilatación para unir áreas de movimiento
+# Motion detection
+ENABLE_MOTION_DET   = False         # enable motion detection
+MOTION_THRESHOLD    = 4000          # total pixel area to consider for motion detection
+MIN_CONTOUR_AREA    = 400           # minimum area of an individual contour to be taken into account
+RECORD_SECONDS      = 15            # seconds it continues recording after detecting motion
+BLUR_KERNEL         = (21, 21)      # smoothing to reduce false positives
+DILATION_KERNEL     = np.ones((5, 5), np.uint8)    # dilation to connect motion areas
 
-# Almacenamiento
-ENABLE_RECORDINGS   = False      # si False, solo muestra el stream sin grabar
-RECORDINGS_DIR      = "recordings"
-MAX_RECORDINGS      = 50        # borra los más antiguos al superar este límite
+# Video recording
+ENABLE_RECORDINGS   = False         # enable recording
+RECORDINGS_DIR      = "recordings"  # name of the folder to store recordings
+MAX_RECORDINGS      = 50            # maximum number of recordings to store
 # ─────────────────────────────────────────────
 
 app = Flask(__name__)
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
-# Estado global compartido entre hilos
+# Global status shared between threads
 _lock             = threading.Lock()
 _current_frame    = None
 _motion_active    = False
 _is_recording     = False
 _last_motion_ts   = None
-_event_log        = []          # lista de dict {time, type}
+_event_log        = []              # list of dict {time, type}
 _stats            = {"total_events": 0, "start_time": datetime.datetime.now()}
 
 
 # ══════════════════════════════════════════════════════════════
-#  HILO DE CAPTURA, DETECCIÓN Y GRABACIÓN
+#  MAIN THREAD
 # ══════════════════════════════════════════════════════════════
 def camera_worker():
     global _current_frame, _motion_active, _is_recording, _last_motion_ts
@@ -106,7 +106,7 @@ def camera_worker():
                     motion       = True
                     record_until = now + datetime.timedelta(seconds=RECORD_SECONDS)
 
-                    # Registrar evento
+                    # Register event
                     if not _motion_active:
                         ts_str = now.strftime("%H:%M:%S")
                         with _lock:
@@ -116,7 +116,7 @@ def camera_worker():
                             _stats["total_events"] += 1
                         _last_motion_ts = now
 
-                    # Dibujar rectángulos sobre objetos en movimiento
+                    # Draw rectangles over moving objects
                     height, width, _ = frame.shape
                     xmin, ymin, xmax, ymax = width, height, 0, 0
                     for c in contours:
@@ -169,15 +169,15 @@ def camera_worker():
 def _draw_overlay(frame, ts, motion, recording):
     h, w = frame.shape[:2]
 
-    # Barra superior semitransparente
+    # Semi-transparent top bar
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (w, 48), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
 
-    # Fecha y hora
+    # Date and time
     cv2.putText(frame, ts.strftime("%d/%m/%Y  %H:%M:%S"), (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (220, 220, 220), 2)
 
-    # Estado de movimiento
+    # Motion status
     if motion:
         label  = "MOVIMIENTO DETECTADO"
         color  = (0, 60, 255)
@@ -208,6 +208,10 @@ def _cleanup_old_recordings():
 # ══════════════════════════════════════════════════════════════
 #  WebRTC STREAM GENERATOR
 # ══════════════════════════════════════════════════════════════
+_pcs = set()
+_aiortc_loop = asyncio.new_event_loop()
+
+
 class CameraVideoTrack(VideoStreamTrack):
     def __init__(self):
         super().__init__()
@@ -224,16 +228,10 @@ class CameraVideoTrack(VideoStreamTrack):
                 await asyncio.sleep(1 / STREAM_FPS)
 
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        # height, width = rgb_frame.shape
-        # video_frame = av.VideoFrame.from_bytes(rgb_frame.tobytes(), width, height, format="rgb24")
         video_frame = av.VideoFrame.from_ndarray(rgb_frame, format="rgb24") # pyright: ignore[reportArgumentType]
         video_frame.pts = pts
         video_frame.time_base = time_base
         return video_frame
-
-
-_pcs = set()
-_aiortc_loop = asyncio.new_event_loop()
 
 
 def _start_aiortc_loop():
@@ -333,13 +331,13 @@ def api_recordings():
 
 
 # ══════════════════════════════════════════════════════════════
-#  INTERFAZ WEB
+#  WEB INTERFACE
 # ══════════════════════════════════════════════════════════════
 HTML_PAGE = open("index.html", "r", encoding='utf-8').read()
 
 
 # ══════════════════════════════════════════════════════════════
-#  PUNTO DE ENTRADA
+#  MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -374,11 +372,11 @@ if __name__ == "__main__":
     print("=" * 55)
     print("  Remote Camera Monitoring System")
     print("=" * 55)
-    print(f"  Cámara:       índice {CAMERA_INDEX}")
-    print(f"  Resolución:   {STREAM_WIDTH}×{STREAM_HEIGHT} @ {STREAM_FPS}fps")
-    print(f"  Grabaciones:  ./{RECORDINGS_DIR}/")
-    print(f"  Acceso local: http://localhost:{FLASK_PORT}")
-    print("  Acceso remoto: consulta SETUP.md")
+    print(f"  Camera:        index {CAMERA_INDEX}")
+    print(f"  Resolution:    {STREAM_WIDTH}x{STREAM_HEIGHT} @ {STREAM_FPS}fps")
+    print(f"  Recordings:    ./{RECORDINGS_DIR}/")
+    print(f"  Local access:  http://localhost:{FLASK_PORT}")
+    print("  Remote access: see SETUP.md")
     print("=" * 55)
 
     t = threading.Thread(target=camera_worker, daemon=True)
