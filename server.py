@@ -16,7 +16,7 @@ import os
 import argparse
 import asyncio
 
-from flask import Flask, Response, jsonify, render_template_string
+from flask import Flask, Response, jsonify, render_template_string, request
 import numpy as np
 from aiortc import RTCIceServer, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCConfiguration
 import av
@@ -302,6 +302,15 @@ def stream():
         _mjpeg_generator(),
         mimetype="multipart/x-mixed-replace; boundary=frame"
     )
+
+
+@app.route("/offer", methods=["POST"])
+def offer():
+    data = request.get_json()
+    if not data or "sdp" not in data or "type" not in data:
+        return jsonify({"error": "Invalid SDP offer"}), 400
+    answer = _run_coroutine(_handle_offer(data))
+    return jsonify(answer)
 
 
 @app.route("/api/status")
