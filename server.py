@@ -325,6 +325,7 @@ def api_status():
             "total_events": _stats["total_events"],
             "uptime": f"{h:02d}:{m:02d}:{s:02d}",
             "events": _event_log[:20],
+            "port": FLASK_PORT,
         })
 
 
