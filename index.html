@@ -132,6 +132,35 @@
         }
         #mute-btn:hover { background: rgba(255,255,255,.18); transform: scale(1.1); }
         #mute-btn.muted { border-color: var(--red); color: var(--red); }
+
+        #fullscreen-btn {
+            position: absolute;
+            bottom: 18px;
+            left: 18px;
+            z-index: 10;
+            background: rgba(0,0,0,.55);
+            border: 1px solid rgba(255,255,255,.15);
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #fff;
+            transition: background .2s, transform .15s;
+            backdrop-filter: blur(4px);
+        }
+        #fullscreen-btn:hover { background: rgba(255,255,255,.18); transform: scale(1.1); }
+        #fullscreen-btn svg { pointer-events: none; }
+
+        /* Fullscreen layout */
+        .feed-wrap:fullscreen,
+        .feed-wrap:-webkit-full-screen {
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
         
         /* ── SIDE PANEL ── */
         .sidebar {
@@ -264,6 +293,14 @@
             <video id="feed" autoplay playsinline></video>
             <img id="mjpeg-feed" alt="MJPEG stream" />
             <div class="motion-flash" id="motion-flash"></div>
+            <button id="fullscreen-btn" title="Toggle fullscreen">
+                <svg id="fs-icon" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="5,1 1,1 1,5"/>
+                    <polyline points="11,1 15,1 15,5"/>
+                    <polyline points="1,11 1,15 5,15"/>
+                    <polyline points="15,11 15,15 11,15"/>
+                </svg>
+            </button>
             <button id="mute-btn" title="Toggle audio">🔊</button>
         </div>
         
@@ -401,6 +438,39 @@
         }
 
         startWebRTC();
+
+        // ── Fullscreen toggle ─────────────────────────
+        const fsBtn  = document.getElementById('fullscreen-btn');
+        const fsIcon = document.getElementById('fs-icon');
+        const feedWrap = document.querySelector('.feed-wrap');
+
+        const ICON_EXPAND = `
+            <polyline points="5,1 1,1 1,5"/>
+            <polyline points="11,1 15,1 15,5"/>
+            <polyline points="1,11 1,15 5,15"/>
+            <polyline points="15,11 15,15 11,15"/>`;
+
+        const ICON_COMPRESS = `
+            <polyline points="1,5 5,5 5,1"/>
+            <polyline points="15,5 11,5 11,1"/>
+            <polyline points="1,11 5,11 5,15"/>
+            <polyline points="15,11 11,11 11,15"/>`;
+
+        fsBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                feedWrap.requestFullscreen().catch(err =>
+                    console.warn('Fullscreen request failed:', err)
+                );
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        document.addEventListener('fullscreenchange', () => {
+            const isFs = !!document.fullscreenElement;
+            fsIcon.innerHTML = isFs ? ICON_COMPRESS : ICON_EXPAND;
+            fsBtn.title = isFs ? 'Exit fullscreen' : 'Toggle fullscreen';
+        });
 
         // ── Mute toggle ──────────────────────────────
         const muteBtn   = document.getElementById('mute-btn');
