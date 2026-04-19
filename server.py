@@ -2,7 +2,7 @@
 Remote Camera Monitoring System — Main Server
 Featuring a motion detection system and video recording
 =====================================================
-Requisites: pip install flask opencv-python numpy aiortc av
+Requisites: pip install flask opencv-python numpy aiortc av sounddevice
 Use: python server.py [options]
 Local Access: http://localhost:port
 Remote Access: http://<public-ip>:port
@@ -15,11 +15,14 @@ import datetime
 import os
 import argparse
 import asyncio
+import queue
+import fractions
 
 from flask import Flask, Response, jsonify, render_template_string, request
 import numpy as np
-from aiortc import RTCIceServer, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCConfiguration
+from aiortc import RTCIceServer, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, AudioStreamTrack, RTCConfiguration
 import av
+import sounddevice as sd
 from utils import list_cameras
 
 # ─────────────────────────────────────────────
@@ -30,6 +33,12 @@ STREAM_WIDTH        = 1280          # frame width (adjust this setting if your c
 STREAM_HEIGHT       = 720           # frame height (adjust this setting if your camera doesn't support this resolution)
 STREAM_FPS          = 20            # stream fps
 FLASK_PORT          = 8090          # port for the web interface
+
+# Audio
+AUDIO_DEVICE_INDEX  = None          # None = system default mic; set to int to pick a specific device
+AUDIO_SAMPLE_RATE   = 48000         # Hz  (48 kHz is the WebRTC standard)
+AUDIO_CHANNELS      = 1            # 1 = mono, 2 = stereo
+AUDIO_CHUNK_FRAMES  = 960           # samples per chunk (20 ms at 48 kHz — matches Opus frame size)
 
 # Motion detection
 ENABLE_MOTION_DET   = False         # enable motion detection
@@ -234,6 +243,58 @@ class CameraVideoTrack(VideoStreamTrack):
         return video_frame
 
 
+class MicrophoneAudioTrack(AudioStreamTrack):
+    """
+    Captures PCM audio from the system microphone using sounddevice and
+    delivers av.AudioFrame objects to the WebRTC peer connection.
+    Each chunk is AUDIO_CHUNK_FRAMES samples long (20 ms at 48 kHz),
+    which matches the Opus codec's preferred frame size.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._queue: queue.Queue = queue.Queue(maxsize=50)
+        self._pts   = 0
+
+        # Open the input stream in a daemon thread so it doesn't block the
+        # asyncio event loop.  The callback pushes raw PCM into _queue.
+        self._stream = sd.InputStream(
+            samplerate=AUDIO_SAMPLE_RATE,
+            channels=AUDIO_CHANNELS,
+            dtype="int16",
+            blocksize=AUDIO_CHUNK_FRAMES,
+            device=AUDIO_DEVICE_INDEX,
+            callback=self._sd_callback,
+        )
+        self._stream.start()
+
+    def _sd_callback(self, indata, frames, time_info, status):
+        """Called by sounddevice from a C audio thread — keep it fast."""
+        if not self._queue.full():
+            self._queue.put_nowait(indata.copy())
+
+    async def recv(self):
+        # Wait for a PCM chunk without blocking the event loop
+        loop = asyncio.get_event_loop()
+        pcm = await loop.run_in_executor(None, self._queue.get)
+
+        # pcm shape: (AUDIO_CHUNK_FRAMES, AUDIO_CHANNELS), dtype int16
+        # av expects shape (channels, samples) for 'fltp' or (1, samples) for s16
+        samples = pcm.T  # (channels, frames)
+
+        audio_frame = av.AudioFrame.from_ndarray(samples, format="s16", layout="mono" if AUDIO_CHANNELS == 1 else "stereo")  # pyright: ignore[reportArgumentType]
+        audio_frame.sample_rate = AUDIO_SAMPLE_RATE
+        audio_frame.pts         = self._pts
+        audio_frame.time_base   = fractions.Fraction(1, AUDIO_SAMPLE_RATE)
+        self._pts              += AUDIO_CHUNK_FRAMES
+        return audio_frame
+
+    def stop(self):
+        self._stream.stop()
+        self._stream.close()
+        super().stop()
+
+
 def _start_aiortc_loop():
     asyncio.set_event_loop(_aiortc_loop)
     _aiortc_loop.run_forever()
@@ -255,6 +316,7 @@ async def _handle_offer(data):
             _pcs.discard(pc)
 
     pc.addTrack(CameraVideoTrack())
+    pc.addTrack(MicrophoneAudioTrack())
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
@@ -356,6 +418,7 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--record", action="store_true", default=ENABLE_RECORDINGS, help="Enable recordings")
     parser.add_argument("-m", "--motion", action="store_true", default=ENABLE_MOTION_DET, help="Enable motion detection")
     parser.add_argument("-p", "--port", type=int, default=FLASK_PORT, help="Flask server port")
+    parser.add_argument("-a", "--audio-device", type=int, default=None, help="Audio input device index (default: system default)")
     args = parser.parse_args()
 
     if args.setup:
@@ -378,12 +441,17 @@ if __name__ == "__main__":
     ENABLE_RECORDINGS = args.record
     ENABLE_MOTION_DET = args.motion
     FLASK_PORT = args.port
+    if args.audio_device is not None:
+        AUDIO_DEVICE_INDEX = args.audio_device
+
+    _audio_label = f"device index {AUDIO_DEVICE_INDEX}" if AUDIO_DEVICE_INDEX is not None else "system default"
 
     print("=" * 55)
     print("  Remote Camera Monitoring System")
     print("=" * 55)
     print(f"  Camera:        index {CAMERA_INDEX}")
     print(f"  Resolution:    {STREAM_WIDTH}x{STREAM_HEIGHT} @ {STREAM_FPS}fps")
+    print(f"  Microphone:    {_audio_label}")
     print(f"  Recordings:    ./{RECORDINGS_DIR}/")
     print(f"  Local access:  http://localhost:{FLASK_PORT}")
     print("  Remote access: see SETUP.md")
