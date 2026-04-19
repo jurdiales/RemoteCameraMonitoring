@@ -161,6 +161,53 @@
             height: 100vh;
             background: #000;
         }
+
+        /* ── CLICK-TO-START OVERLAY ── */
+        #play-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 20;
+            display: none;         /* shown only when autoplay is blocked */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,.5);
+            backdrop-filter: blur(3px);
+            cursor: pointer;
+            transition: opacity .35s;
+        }
+        #play-overlay.visible { display: flex; }
+        #play-overlay.fade-out { opacity: 0; pointer-events: none; }
+        .play-circle {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 2px solid var(--green);
+            background: rgba(0,230,118,.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 18px;
+            transition: transform .2s, background .2s;
+        }
+        #play-overlay:hover .play-circle {
+            transform: scale(1.1);
+            background: rgba(0,230,118,.25);
+        }
+        .play-label {
+            font-family: var(--mono);
+            font-size: .8rem;
+            letter-spacing: .18em;
+            color: var(--green);
+            text-transform: uppercase;
+        }
+        .play-sublabel {
+            font-family: var(--mono);
+            font-size: .65rem;
+            color: var(--text-dim);
+            margin-top: 6px;
+            letter-spacing: .1em;
+        }
         
         /* ── SIDE PANEL ── */
         .sidebar {
@@ -293,6 +340,18 @@
             <video id="feed" autoplay playsinline></video>
             <img id="mjpeg-feed" alt="MJPEG stream" />
             <div class="motion-flash" id="motion-flash"></div>
+
+            <!-- Click-to-start overlay (shown when browser blocks unmuted autoplay) -->
+            <div id="play-overlay">
+                <div class="play-circle">
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="var(--green)">
+                        <polygon points="6,3 20,12 6,21"/>
+                    </svg>
+                </div>
+                <span class="play-label">Click to start</span>
+                <span class="play-sublabel">Audio + Video stream</span>
+            </div>
+
             <button id="fullscreen-btn" title="Toggle fullscreen">
                 <svg id="fs-icon" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="5,1 1,1 1,5"/>
@@ -400,6 +459,10 @@
             if (stream) {
                 video.srcObject = stream;
                 showWebRTC();
+                // Attempt unmuted autoplay; show overlay if browser blocks it
+                video.play().catch(() => {
+                    document.getElementById('play-overlay').classList.add('visible');
+                });
             }
         };
 
@@ -438,6 +501,15 @@
         }
 
         startWebRTC();
+
+        // ── Click-to-start overlay ─────────────────────
+        const playOverlay = document.getElementById('play-overlay');
+        playOverlay.addEventListener('click', () => {
+            video.play().then(() => {
+                playOverlay.classList.add('fade-out');
+                setTimeout(() => playOverlay.classList.remove('visible', 'fade-out'), 380);
+            });
+        });
 
         // ── Fullscreen toggle ─────────────────────────
         const fsBtn  = document.getElementById('fullscreen-btn');
