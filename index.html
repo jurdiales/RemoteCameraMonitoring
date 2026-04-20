@@ -285,6 +285,19 @@
         .event-time { color: var(--text-dim); flex-shrink: 0; }
         .event-label { color: var(--amber); }
         
+        /* Stream info */
+        .stream-info { display: flex; flex-direction: column; gap: 7px; }
+        .stream-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: var(--mono);
+            font-size: .72rem;
+        }
+        .stream-row .sk { color: var(--text-dim); }
+        .stream-row .sv { color: var(--green); letter-spacing: .03em; }
+        .stream-row .sv.dim { color: var(--text-dim); }
+
         /* Recordings */
         .rec-list {
             max-height: 150px;
@@ -377,6 +390,18 @@
                 </div>
             </div>
             
+            <!-- Stream info -->
+            <div class="panel-block">
+                <div class="panel-label">Stream info</div>
+                <div class="stream-info">
+                    <div class="stream-row"><span class="sk">Resolución</span><span class="sv dim" id="si-resolution">—</span></div>
+                    <div class="stream-row"><span class="sk">Codec video</span><span class="sv dim" id="si-vcodec">—</span></div>
+                    <div class="stream-row"><span class="sk">Codec audio</span><span class="sv dim" id="si-acodec">—</span></div>
+                    <div class="stream-row"><span class="sk">FPS recibidos</span><span class="sv dim" id="si-fps">—</span></div>
+                    <div class="stream-row"><span class="sk">Bitrate video</span><span class="sv dim" id="si-bitrate">—</span></div>
+                </div>
+            </div>
+
             <!-- Estadísticas -->
             <div class="panel-block">
                 <div class="panel-label">Estadísticas</div>
@@ -468,7 +493,8 @@
 
         pc.oniceconnectionstatechange = () => {
             const state = pc.iceConnectionState;
-            if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+            // 'disconnected' is transient and can self-recover; only fall back on terminal states
+            if (state === 'failed' || state === 'closed') {
                 console.warn('WebRTC connection state:', state);
                 showMJPEG();
             }
@@ -643,6 +669,76 @@
         setInterval(fetchRecordings, 10000);
         fetchStatus();
         fetchRecordings();
+
+        // ── WebRTC stream stats ───────────────────────
+        let _prevVideoBytes = 0;
+        let _prevStatsTs    = 0;
+
+        function _dim(id)  { document.getElementById(id).className = 'sv dim'; }
+        function _lit(id)  { document.getElementById(id).className = 'sv'; }
+        function _set(id, val) { document.getElementById(id).textContent = val; }
+
+        async function fetchStreamStats() {
+            if (pc.connectionState !== 'connected') {
+                ['si-resolution','si-vcodec','si-acodec','si-fps','si-bitrate']
+                    .forEach(id => { _set(id, '—'); _dim(id); });
+                _prevVideoBytes = 0;
+                _prevStatsTs    = 0;
+                return;
+            }
+
+            try {
+                const stats = await pc.getStats();
+
+                // Build a codec-id → short name map
+                const codecMap = {};
+                stats.forEach(r => {
+                    if (r.type === 'codec' && r.mimeType) {
+                        codecMap[r.id] = r.mimeType.split('/')[1].toUpperCase();
+                    }
+                });
+
+                stats.forEach(r => {
+                    if (r.type !== 'inbound-rtp') return;
+
+                    if (r.kind === 'video') {
+                        // Resolution
+                        if (r.frameWidth && r.frameHeight) {
+                            _set('si-resolution', `${r.frameWidth}×${r.frameHeight}`);
+                            _lit('si-resolution');
+                        }
+
+                        // Video codec
+                        const vcodec = r.codecId && codecMap[r.codecId];
+                        if (vcodec) { _set('si-vcodec', vcodec); _lit('si-vcodec'); }
+
+                        // FPS
+                        if (r.framesPerSecond != null) {
+                            _set('si-fps', `${Math.round(r.framesPerSecond)} fps`);
+                            _lit('si-fps');
+                        }
+
+                        // Bitrate
+                        const now = Date.now();
+                        if (_prevVideoBytes && _prevStatsTs) {
+                            const dt   = (now - _prevStatsTs) / 1000;
+                            const kbps = ((r.bytesReceived - _prevVideoBytes) * 8) / dt / 1000;
+                            _set('si-bitrate', `${Math.round(kbps)} kbps`);
+                            _lit('si-bitrate');
+                        }
+                        _prevVideoBytes = r.bytesReceived;
+                        _prevStatsTs    = now;
+                    }
+
+                    if (r.kind === 'audio') {
+                        const acodec = r.codecId && codecMap[r.codecId];
+                        if (acodec) { _set('si-acodec', acodec); _lit('si-acodec'); }
+                    }
+                });
+            } catch (e) { /* stats not yet available */ }
+        }
+
+        setInterval(fetchStreamStats, 2000);
     </script>
 </body>
 </html>
