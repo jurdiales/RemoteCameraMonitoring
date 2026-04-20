@@ -10,6 +10,8 @@ class CameraInfo:
     fps: int
 
 
+MAX_CAMERA_PORTS = 10  # upper bound to prevent an infinite scan on systems with virtual cameras
+
 def list_cameras() -> tuple:
     """
     Test the cameras and returns a tuple with the available cameras 
@@ -19,7 +21,7 @@ def list_cameras() -> tuple:
     dev_port = 0
     working_cameras = []
     available_cameras = []
-    while is_working:
+    while is_working and dev_port < MAX_CAMERA_PORTS:
         camera = cv2.VideoCapture(dev_port)
         if not camera.isOpened():
             is_working = False
@@ -28,13 +30,14 @@ def list_cameras() -> tuple:
             w = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = int(camera.get(cv2.CAP_PROP_FPS))
+            camera.release()  # release the handle so the camera is free for the main thread
             if is_reading:
                 print("Port %s is working and reads images (%s x %s)" %(dev_port, h, w))
                 working_cameras.append(CameraInfo(port=dev_port, width=w, height=h, fps=fps))
             else:
                 print("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port, h, w))
                 available_cameras.append(dev_port)
-        dev_port +=1
+        dev_port += 1
     return available_cameras, working_cameras
 
 

@@ -37,7 +37,7 @@ FLASK_PORT          = 8090          # port for the web interface
 # Audio
 AUDIO_DEVICE_INDEX  = None          # None = system default mic; set to int to pick a specific device
 AUDIO_SAMPLE_RATE   = 48000         # Hz  (48 kHz is the WebRTC standard)
-AUDIO_CHANNELS      = 1            # 1 = mono, 2 = stereo
+AUDIO_CHANNELS      = 1             # 1 = mono, 2 = stereo
 AUDIO_CHUNK_FRAMES  = 960           # samples per chunk (20 ms at 48 kHz — matches Opus frame size)
 
 # Motion detection
@@ -275,7 +275,7 @@ class MicrophoneAudioTrack(AudioStreamTrack):
 
     async def recv(self):
         # Wait for a PCM chunk without blocking the event loop
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         pcm = await loop.run_in_executor(None, self._queue.get)
 
         # pcm shape: (AUDIO_CHUNK_FRAMES, AUDIO_CHANNELS), dtype int16
@@ -311,7 +311,8 @@ async def _handle_offer(data):
 
     @pc.on("connectionstatechange")
     async def on_connectionstatechange():
-        if pc.connectionState in ("failed", "closed", "disconnected"):
+        # "disconnected" is transient and can self-recover; only close on terminal states
+        if pc.connectionState in ("failed", "closed"):
             await pc.close()
             _pcs.discard(pc)
 
@@ -320,6 +321,13 @@ async def _handle_offer(data):
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
+
+    # Wait for ICE gathering to finish (up to 5 s) so STUN server-reflexive
+    # candidates are included in the SDP — required for remote connections.
+    deadline = _aiortc_loop.time() + 5.0
+    while pc.iceGatheringState != "complete" and _aiortc_loop.time() < deadline:
+        await asyncio.sleep(0.1)
+
     return {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
 
 
@@ -405,7 +413,8 @@ def api_recordings():
 # ══════════════════════════════════════════════════════════════
 #  WEB INTERFACE
 # ══════════════════════════════════════════════════════════════
-HTML_PAGE = open("index.html", "r", encoding='utf-8').read()
+with open("index.html", "r", encoding='utf-8') as _f:
+    HTML_PAGE = _f.read()
 
 
 # ══════════════════════════════════════════════════════════════
