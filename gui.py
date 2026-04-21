@@ -1,0 +1,298 @@
+"""
+RemoteCamera — GUI Launcher
+===========================
+A tkinter interface to configure and launch the monitoring server.
+Run with: python gui.py
+"""
+
+import os
+import queue
+import sys
+import subprocess
+import threading
+import tkinter as tk
+from tkinter import scrolledtext
+
+# ── Colour palette (mirrors the web UI) ──────────────────────────────────────
+BG       = "#0a0c0e"
+PANEL    = "#111417"
+BORDER   = "#1e2329"
+GREEN    = "#00e676"
+RED      = "#ff3d3d"
+AMBER    = "#ffa726"
+TEXT     = "#c8cdd4"
+DIM      = "#4a5060"
+FONT_SZ  = 9
+MONO     = ("Courier New", FONT_SZ)
+MONO_B   = ("Courier New", FONT_SZ, "bold")
+MONO_SM  = ("Courier New", 7)
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+SERVER_SCRIPT = os.path.join(_HERE, "server.py")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _sep(parent, row, colspan=4):
+    """Horizontal separator line."""
+    tk.Frame(parent, bg=BORDER, height=1).grid(
+        row=row, column=0, columnspan=colspan, sticky="ew", pady=(2, 6))
+
+
+def _section_label(parent, text, row, colspan=4):
+    tk.Label(parent, text=text, bg=BG, fg=DIM, font=MONO_SM, anchor="w").grid(
+        row=row, column=0, columnspan=colspan, sticky="w", pady=(10, 0))
+    _sep(parent, row + 1, colspan)
+
+
+def _label(parent, text, row, col):
+    tk.Label(parent, text=text, bg=BG, fg=DIM, font=MONO, anchor="w").grid(
+        row=row, column=col, sticky="w", padx=(0, 8), pady=3)
+
+
+def _entry(parent, default, row, col, width=8, show=None):
+    var = tk.StringVar(value=str(default))
+    e = tk.Entry(
+        parent, textvariable=var, width=width, show=show,
+        bg=PANEL, fg=TEXT, insertbackground=TEXT,
+        relief="flat", font=MONO,
+        highlightthickness=1, highlightbackground=BORDER, highlightcolor=GREEN,
+    )
+    e.grid(row=row, column=col, sticky="w", pady=3)
+    return var
+
+
+def _check(parent, text, default, row, col, colspan=2):
+    var = tk.BooleanVar(value=default)
+    tk.Checkbutton(
+        parent, text=text, variable=var,
+        bg=BG, fg=TEXT, selectcolor=PANEL,
+        activebackground=BG, activeforeground=GREEN,
+        font=MONO, bd=0,
+    ).grid(row=row, column=col, columnspan=colspan, sticky="w", pady=2)
+    return var
+
+
+# ── Main window ───────────────────────────────────────────────────────────────
+class ServerLauncher(tk.Tk):
+
+    def __init__(self):
+        super().__init__()
+        self.title("RemoteCamera — Launcher")
+        self.configure(bg=BG)
+        self.resizable(True, True)
+        self.minsize(500, 520)
+
+        self._proc   = None          # subprocess.Popen handle
+        self._q      = queue.Queue() # output lines from the server process
+        self._reader = None          # background reader thread
+
+        self._build_ui()
+        self._poll_queue()           # start the periodic UI updater
+
+    # ── UI ────────────────────────────────────────────────────────────────────
+    def _build_ui(self):
+        self._build_header()
+        self._build_settings()
+        self._build_controls()
+        self._build_console()
+
+    def _build_header(self):
+        hdr = tk.Frame(self, bg=PANEL)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="RemoteCamera", bg=PANEL, fg=GREEN,
+                 font=("Courier New", 13, "bold")).pack(side="left", padx=20, pady=12)
+        tk.Label(hdr, text="// SERVER LAUNCHER", bg=PANEL, fg=DIM,
+                 font=MONO_SM).pack(side="left", pady=12)
+
+    def _build_settings(self):
+        outer = tk.Frame(self, bg=BG)
+        outer.pack(fill="x", padx=20, pady=(12, 0))
+
+        f = tk.Frame(outer, bg=BG)
+        f.pack(fill="x")
+        f.columnconfigure(1, minsize=80)
+        f.columnconfigure(3, minsize=80)
+
+        r = 0
+        # ── Camera ────────────────────────────────────────────────────────────
+        _section_label(f, "CAMERA", r);               r += 2
+        _label(f, "Camera index",  r, 0)
+        self._camera = _entry(f, 0, r, 1, width=5)
+        _label(f, "FPS",           r, 2)
+        self._fps    = _entry(f, 20, r, 3, width=5);  r += 1
+
+        _label(f, "Width (px)",    r, 0)
+        self._width  = _entry(f, 1280, r, 1, width=6)
+        _label(f, "Height (px)",   r, 2)
+        self._height = _entry(f, 720, r, 3, width=6); r += 1
+
+        # ── Network ───────────────────────────────────────────────────────────
+        _section_label(f, "NETWORK", r);              r += 2
+        _label(f, "Port",          r, 0)
+        self._port   = _entry(f, 8090, r, 1, width=6)
+        _label(f, "Password",      r, 2)
+        self._pwd    = _entry(f, "", r, 3, width=14, show="●"); r += 1
+
+        # ── Audio ─────────────────────────────────────────────────────────────
+        _section_label(f, "AUDIO", r);                r += 2
+        _label(f, "Device index",  r, 0)
+        self._audio  = _entry(f, "", r, 1, width=5)
+        tk.Label(f, text="(blank = system default)", bg=BG, fg=DIM,
+                 font=MONO_SM).grid(row=r, column=2, columnspan=2,
+                                    sticky="w", padx=(0, 8)); r += 1
+
+        # ── Features ──────────────────────────────────────────────────────────
+        _section_label(f, "FEATURES", r);             r += 2
+        self._motion = _check(f, "Enable motion detection", False, r, 0); r += 1
+        self._record = _check(f, "Enable recordings",       False, r, 0); r += 1
+
+    def _build_controls(self):
+        frame = tk.Frame(self, bg=BG)
+        frame.pack(fill="x", padx=20, pady=12)
+
+        self._btn_var = tk.StringVar(value="▶   START SERVER")
+        self._btn = tk.Button(
+            frame,
+            textvariable=self._btn_var,
+            command=self._toggle,
+            bg=GREEN, fg=BG,
+            activebackground="#00c060", activeforeground=BG,
+            font=("Courier New", 10, "bold"),
+            relief="flat", padx=20, pady=9, cursor="hand2", bd=0,
+        )
+        self._btn.pack(fill="x")
+
+    def _build_console(self):
+        hdr = tk.Frame(self, bg=PANEL)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="CONSOLE OUTPUT", bg=PANEL, fg=DIM,
+                 font=MONO_SM).pack(side="left", padx=20, pady=5)
+        self._dot = tk.Label(hdr, text="●", bg=PANEL, fg=DIM, font=MONO)
+        self._dot.pack(side="right", padx=20, pady=5)
+
+        self._console = scrolledtext.ScrolledText(
+            self, bg="#060809", fg=TEXT, font=("Courier New", 8),
+            relief="flat", bd=0, state="disabled", wrap="word", height=12,
+        )
+        self._console.pack(fill="both", expand=True)
+        self._console.tag_config("ok",    foreground=GREEN)
+        self._console.tag_config("err",   foreground=RED)
+        self._console.tag_config("warn",  foreground=AMBER)
+        self._console.tag_config("dim",   foreground=DIM)
+
+    # ── Server lifecycle ──────────────────────────────────────────────────────
+    def _toggle(self):
+        if self._proc is None:
+            self._start()
+        else:
+            self._stop()
+
+    def _build_cmd(self):
+        cmd = [sys.executable, SERVER_SCRIPT]
+        cmd += ["--camera",  self._camera.get()]
+        cmd += ["--width",   self._width.get()]
+        cmd += ["--height",  self._height.get()]
+        cmd += ["--fps",     self._fps.get()]
+        cmd += ["--port",    self._port.get()]
+        pwd = self._pwd.get().strip()
+        if pwd:
+            cmd += ["--password", pwd]
+        audio = self._audio.get().strip()
+        if audio:
+            cmd += ["--audio-device", audio]
+        if self._motion.get():
+            cmd.append("--motion")
+        if self._record.get():
+            cmd.append("--record")
+        return cmd
+
+    def _start(self):
+        cmd = self._build_cmd()
+        # Log the command with the password masked
+        display = [("●●●●" if i > 0 and cmd[i - 1] == "--password" else c)
+                   for i, c in enumerate(cmd)]
+        self._log(f"$ {' '.join(display)}\n", "dim")
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=_HERE,
+            )
+        except Exception as exc:
+            self._log(f"Error: {exc}\n", "err")
+            return
+
+        self._btn_var.set("■   STOP SERVER")
+        self._btn.config(bg=RED, activebackground="#cc2020")
+        self._dot.config(fg=GREEN)
+
+        self._reader = threading.Thread(target=self._read_output, daemon=True)
+        self._reader.start()
+
+    def _stop(self):
+        if self._proc:
+            self._proc.terminate()
+            self._proc = None
+        self._set_stopped()
+        self._log("— Server stopped —\n", "warn")
+
+    def _set_stopped(self):
+        self._proc = None
+        self._btn_var.set("▶   START SERVER")
+        self._btn.config(bg=GREEN, activebackground="#00c060")
+        self._dot.config(fg=DIM)
+
+    # ── Output reader (background thread) ────────────────────────────────────
+    def _read_output(self):
+        try:
+            for line in self._proc.stdout:
+                self._q.put(line)
+        except Exception:
+            pass
+        finally:
+            self._q.put(None)  # sentinel: process ended
+
+    # ── Queue poller (main thread, via after()) ───────────────────────────────
+    def _poll_queue(self):
+        try:
+            while True:
+                item = self._q.get_nowait()
+                if item is None:
+                    # Process ended on its own
+                    if self._proc is not None:
+                        self._set_stopped()
+                        self._log("— Server process exited —\n", "warn")
+                else:
+                    lo = item.lower()
+                    tag = ("ok"   if ("local access" in lo or "started" in lo) else
+                           "err"  if ("error" in lo or "traceback" in lo or "exception" in lo) else
+                           "warn" if "warning" in lo else
+                           None)
+                    self._log(item, tag)
+        except queue.Empty:
+            pass
+        self.after(100, self._poll_queue)
+
+    def _log(self, text, tag=None):
+        self._console.config(state="normal")
+        if tag:
+            self._console.insert("end", text, tag)
+        else:
+            self._console.insert("end", text)
+        self._console.see("end")
+        self._console.config(state="disabled")
+
+    # ── Window close ─────────────────────────────────────────────────────────
+    def _on_close(self):
+        if self._proc:
+            self._proc.terminate()
+        self.destroy()
+
+
+if __name__ == "__main__":
+    app = ServerLauncher()
+    app.protocol("WM_DELETE_WINDOW", app._on_close)
+    app.mainloop()

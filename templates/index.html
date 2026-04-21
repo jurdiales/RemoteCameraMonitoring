@@ -538,7 +538,7 @@
                         if (error.name === "NotAllowedError") {
                             document.getElementById('play-overlay').classList.add('visible');
                         } else {
-                            console.warn('Play video failed, showing play overlay:', err);
+                            console.warn('Play video failed', err);
                         }
                     });
                 }

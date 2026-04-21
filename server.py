@@ -465,6 +465,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--setup", action="store_true", help="Run camera setup utility", required=False)
     parser.add_argument("-c", "--camera", type=int, default=CAMERA_INDEX, help="Camera index")
+    parser.add_argument("-w", "--width", type=int, default=STREAM_WIDTH,  help="Stream width in pixels")
+    parser.add_argument("-h", "--height", type=int, default=STREAM_HEIGHT, help="Stream height in pixels")
+    parser.add_argument("--fps", type=int, default=STREAM_FPS, help="Stream frames per second")
     parser.add_argument("-a", "--audio-device", type=int, default=None, help="Audio input device index (default: system default)")
     parser.add_argument("-r", "--record", action="store_true", default=ENABLE_RECORDINGS, help="Enable recordings")
     parser.add_argument("-m", "--motion", action="store_true", default=ENABLE_MOTION_DET, help="Enable motion detection")
@@ -489,6 +492,9 @@ if __name__ == "__main__":
         exit(0)
 
     CAMERA_INDEX = args.camera
+    STREAM_WIDTH = args.width
+    STREAM_HEIGHT = args.height
+    STREAM_FPS = args.fps
     if args.audio_device is not None:
         AUDIO_DEVICE_INDEX = args.audio_device
     ENABLE_RECORDINGS = args.record
