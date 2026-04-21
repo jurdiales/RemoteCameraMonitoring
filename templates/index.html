@@ -56,6 +56,18 @@
             line-height: 1.7;
         }
         #clock { color: var(--text); }
+        .logout-btn {
+            font-family: var(--mono);
+            font-size: .65rem;
+            letter-spacing: .1em;
+            color: var(--text-dim);
+            text-decoration: none;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 5px 12px;
+            transition: color .2s, border-color .2s;
+        }
+        .logout-btn:hover { color: var(--red); border-color: var(--red); }
         
         /* ── MAIN GRID ── */
         main {
@@ -132,6 +144,27 @@
         }
         #mute-btn:hover { background: rgba(255,255,255,.18); transform: scale(1.1); }
         #mute-btn.muted { border-color: var(--red); color: var(--red); }
+
+        /* ── UNMUTE NUDGE ── */
+        #unmute-nudge {
+            position: absolute;
+            bottom: 72px;
+            right: 18px;
+            z-index: 10;
+            background: rgba(0,0,0,.65);
+            border: 1px solid var(--green);
+            border-radius: 6px;
+            padding: 7px 14px;
+            font-family: var(--mono);
+            font-size: .68rem;
+            color: var(--green);
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            display: none;
+            animation: nudgeFadeIn .4s ease;
+        }
+        @keyframes nudgeFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        #unmute-nudge:hover { background: rgba(0,230,118,.12); }
 
         #fullscreen-btn {
             position: absolute;
@@ -345,6 +378,7 @@
             <div id="clock">--:--:--</div>
             <div id="date-display"></div>
         </div>
+        {% if auth_enabled %}<a class="logout-btn" href="/logout">LOGOUT</a>{% endif %}
     </header>
     
     <main>
@@ -374,6 +408,7 @@
                 </svg>
             </button>
             <button id="mute-btn" title="Toggle audio">🔊</button>
+            <div id="unmute-nudge">🔇 Click to enable audio</div>
         </div>
         
         <!-- ── SIDEBAR ───────────────────────────── -->
@@ -455,7 +490,19 @@
         
         // ── WebRTC stream setup ─────────────────────
         const video = document.getElementById('feed');
+        video.addEventListener("play", handleFirstPlay);
         const mjpeg = document.getElementById('mjpeg-feed');
+
+        let hasPlayed = false;
+        // This will be fired when the video is resumed after being paused and when autoplay occurs
+        function handleFirstPlay(event) {
+            if (!hasPlayed) {
+                hasPlayed = true;
+                // Remove listener so this only gets called once.
+                const vid = event.target;
+                vid.removeEventListener("play", handleFirstPlay);
+            }
+        }
 
         function showWebRTC() {
             mjpeg.style.display = 'none';
@@ -484,10 +531,17 @@
             if (stream) {
                 video.srcObject = stream;
                 showWebRTC();
-                // Attempt unmuted autoplay; show overlay if browser blocks it
-                video.play().catch(() => {
-                    document.getElementById('play-overlay').classList.add('visible');
-                });
+                // Regular load — attempt unmuted autoplay; show overlay if blocked.
+                var isPlaying = (hasPlayed) || (video.currentTime > 0 && !video.paused && !video.ended && video.readyState > video.HAVE_CURRENT_DATA);
+                if (!isPlaying) {
+                    video.play().catch((err) => {
+                        if (error.name === "NotAllowedError") {
+                            document.getElementById('play-overlay').classList.add('visible');
+                        } else {
+                            console.warn('Play video failed, showing play overlay:', err);
+                        }
+                    });
+                }
             }
         };
 

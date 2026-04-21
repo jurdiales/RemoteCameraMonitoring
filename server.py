@@ -17,8 +17,10 @@ import argparse
 import asyncio
 import queue
 import fractions
+import secrets
+from functools import wraps
 
-from flask import Flask, Response, jsonify, render_template_string, request
+from flask import Flask, Response, jsonify, render_template, request, session, redirect
 import numpy as np
 from aiortc import RTCIceServer, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, AudioStreamTrack, RTCConfiguration
 import av
@@ -52,9 +54,13 @@ DILATION_KERNEL     = np.ones((5, 5), np.uint8)    # dilation to connect motion 
 ENABLE_RECORDINGS   = False         # enable recording
 RECORDINGS_DIR      = "recordings"  # name of the folder to store recordings
 MAX_RECORDINGS      = 50            # maximum number of recordings to store
+
+# Authentication
+LOGIN_PASSWORD      = ""            # password to access the web interface; leave empty to disable auth
 # ─────────────────────────────────────────────
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates")
+app.secret_key = secrets.token_hex(32)  # random per-run; all sessions are invalidated on restart
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 # Global status shared between threads
@@ -359,14 +365,53 @@ def _mjpeg_generator():
 
 
 # ══════════════════════════════════════════════════════════════
+#  AUTHENTICATION
+# ══════════════════════════════════════════════════════════════
+def require_auth(f):
+    """Gate a route behind the configured password. No-op when LOGIN_PASSWORD is empty."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if LOGIN_PASSWORD and not session.get("authenticated"):
+            # Return JSON 401 for API / AJAX endpoints; redirect pages to login
+            if request.path.startswith("/api/") or request.is_json:
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect("/login")
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not LOGIN_PASSWORD:
+        return redirect("/")
+    if request.method == "POST":
+        pwd = request.form.get("password", "")
+        if secrets.compare_digest(pwd.encode(), LOGIN_PASSWORD.encode()):
+            session["authenticated"] = True
+            session["from_login"] = True
+            return redirect("/")
+        return render_template("login.html", error="Incorrect password")
+    return render_template("login.html", error=None)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login" if LOGIN_PASSWORD else "/")
+
+
+# ══════════════════════════════════════════════════════════════
 #  RUTAS FLASK
 # ══════════════════════════════════════════════════════════════
 @app.route("/")
+@require_auth
 def index():
-    return render_template_string(HTML_PAGE)
+    from_login = session.pop("from_login", False)
+    return render_template("index.html", auth_enabled=bool(LOGIN_PASSWORD), from_login=from_login)
 
 
 @app.route("/stream")
+@require_auth
 def stream():
     return Response(
         _mjpeg_generator(),
@@ -375,6 +420,7 @@ def stream():
 
 
 @app.route("/offer", methods=["POST"])
+@require_auth
 def offer():
     data = request.get_json()
     if not data or "sdp" not in data or "type" not in data:
@@ -384,6 +430,7 @@ def offer():
 
 
 @app.route("/api/status")
+@require_auth
 def api_status():
     uptime = datetime.datetime.now() - _stats["start_time"]
     h, rem = divmod(int(uptime.total_seconds()), 3600)
@@ -400,6 +447,7 @@ def api_status():
 
 
 @app.route("/api/recordings")
+@require_auth
 def api_recordings():
     files = []
     for f in sorted(os.listdir(RECORDINGS_DIR), reverse=True):
@@ -411,23 +459,17 @@ def api_recordings():
 
 
 # ══════════════════════════════════════════════════════════════
-#  WEB INTERFACE
-# ══════════════════════════════════════════════════════════════
-with open("index.html", "r", encoding='utf-8') as _f:
-    HTML_PAGE = _f.read()
-
-
-# ══════════════════════════════════════════════════════════════
 #  MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--setup", action="store_true", help="Run camera setup utility", required=False)
     parser.add_argument("-c", "--camera", type=int, default=CAMERA_INDEX, help="Camera index")
+    parser.add_argument("-a", "--audio-device", type=int, default=None, help="Audio input device index (default: system default)")
     parser.add_argument("-r", "--record", action="store_true", default=ENABLE_RECORDINGS, help="Enable recordings")
     parser.add_argument("-m", "--motion", action="store_true", default=ENABLE_MOTION_DET, help="Enable motion detection")
     parser.add_argument("-p", "--port", type=int, default=FLASK_PORT, help="Flask server port")
-    parser.add_argument("-a", "--audio-device", type=int, default=None, help="Audio input device index (default: system default)")
+    parser.add_argument("--password", type=str, default=LOGIN_PASSWORD, metavar="PWD", help="Password to protect the web interface (leave empty to disable)")
     args = parser.parse_args()
 
     if args.setup:
@@ -447,13 +489,15 @@ if __name__ == "__main__":
         exit(0)
 
     CAMERA_INDEX = args.camera
+    if args.audio_device is not None:
+        AUDIO_DEVICE_INDEX = args.audio_device
     ENABLE_RECORDINGS = args.record
     ENABLE_MOTION_DET = args.motion
     FLASK_PORT = args.port
-    if args.audio_device is not None:
-        AUDIO_DEVICE_INDEX = args.audio_device
+    LOGIN_PASSWORD = args.password
 
     _audio_label = f"device index {AUDIO_DEVICE_INDEX}" if AUDIO_DEVICE_INDEX is not None else "system default"
+    _auth_label  = "enabled" if LOGIN_PASSWORD else "DISABLED (no --password set)"
 
     print("=" * 55)
     print("  Remote Camera Monitoring System")
@@ -461,6 +505,7 @@ if __name__ == "__main__":
     print(f"  Camera:        index {CAMERA_INDEX}")
     print(f"  Resolution:    {STREAM_WIDTH}x{STREAM_HEIGHT} @ {STREAM_FPS}fps")
     print(f"  Microphone:    {_audio_label}")
+    print(f"  Auth:          {_auth_label}")
     print(f"  Recordings:    ./{RECORDINGS_DIR}/")
     print(f"  Local access:  http://localhost:{FLASK_PORT}")
     print("  Remote access: see SETUP.md")
@@ -472,4 +517,4 @@ if __name__ == "__main__":
     aiortc_thread = threading.Thread(target=_start_aiortc_loop, daemon=True)
     aiortc_thread.start()
 
-    app.run(host="0.0.0.0", port=FLASK_PORT, threaded=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=FLASK_PORT, threaded=True, debug=True, use_reloader=False)
