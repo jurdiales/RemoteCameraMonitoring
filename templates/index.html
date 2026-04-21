@@ -374,11 +374,11 @@
     
     <header>
         <div class="logo">RemoteCamera <span>// VIGILANCIA DOMÉSTICA</span></div>
+        {% if auth_enabled %}<a class="logout-btn" href="/logout">LOGOUT</a>{% endif %}
         <div class="header-meta">
             <div id="clock">--:--:--</div>
             <div id="date-display"></div>
         </div>
-        {% if auth_enabled %}<a class="logout-btn" href="/logout">LOGOUT</a>{% endif %}
     </header>
     
     <main>
