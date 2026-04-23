@@ -13,6 +13,8 @@ import threading
 import tkinter as tk
 from tkinter import scrolledtext
 
+import server as srv
+
 # ── Colour palette (mirrors the web UI) ──────────────────────────────────────
 BG       = "#0a0c0e"
 PANEL    = "#111417"
@@ -22,10 +24,10 @@ RED      = "#ff3d3d"
 AMBER    = "#ffa726"
 TEXT     = "#c8cdd4"
 DIM      = "#4a5060"
-FONT_SZ  = 9
-MONO     = ("Courier New", FONT_SZ)
-MONO_B   = ("Courier New", FONT_SZ, "bold")
-MONO_SM  = ("Courier New", 7)
+FONT_SZ  = 11
+MONO     = ("Helvetica", FONT_SZ)
+LABELS   = ("Helvetica", 12, "bold")
+MONO_SM  = ("Helvetica", FONT_SZ)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER_SCRIPT = os.path.join(_HERE, "server.py")
@@ -39,8 +41,8 @@ def _sep(parent, row, colspan=4):
 
 
 def _section_label(parent, text, row, colspan=4):
-    tk.Label(parent, text=text, bg=BG, fg=DIM, font=MONO_SM, anchor="w").grid(
-        row=row, column=0, columnspan=colspan, sticky="w", pady=(10, 0))
+    tk.Label(parent, text=text, bg=BG, fg=DIM, font=LABELS, anchor="w").grid(
+        row=row, column=0, columnspan=colspan, sticky="w", pady=(15, 0))
     _sep(parent, row + 1, colspan)
 
 
@@ -49,15 +51,15 @@ def _label(parent, text, row, col):
         row=row, column=col, sticky="w", padx=(0, 8), pady=3)
 
 
-def _entry(parent, default, row, col, width=8, show=None):
+def _entry(parent, default, row, col, width=8, show='', validate='none', validate_cmd=''):
     var = tk.StringVar(value=str(default))
     e = tk.Entry(
-        parent, textvariable=var, width=width, show=show,
-        bg=PANEL, fg=TEXT, insertbackground=TEXT,
-        relief="flat", font=MONO,
+        parent, textvariable=var, width=width, show=show, justify=tk.RIGHT,
+        bg=PANEL, fg=TEXT, insertbackground=TEXT, relief="flat", font=MONO,
         highlightthickness=1, highlightbackground=BORDER, highlightcolor=GREEN,
+        validate=validate, validatecommand=validate_cmd,
     )
-    e.grid(row=row, column=col, sticky="w", pady=3)
+    e.grid(row=row, column=col, sticky="w", pady=3, padx=20)
     return var
 
 
@@ -70,6 +72,13 @@ def _check(parent, text, default, row, col, colspan=2):
         font=MONO, bd=0,
     ).grid(row=row, column=col, columnspan=colspan, sticky="w", pady=2)
     return var
+
+def _validate_int(value):
+    """Return True if *value* can be parsed as a non-negative integer."""
+    try:
+        return int(value) >= 0
+    except (ValueError, TypeError):
+        return False
 
 
 # ── Main window ───────────────────────────────────────────────────────────────
@@ -100,13 +109,13 @@ class ServerLauncher(tk.Tk):
         hdr = tk.Frame(self, bg=PANEL)
         hdr.pack(fill="x")
         tk.Label(hdr, text="RemoteCamera", bg=PANEL, fg=GREEN,
-                 font=("Courier New", 13, "bold")).pack(side="left", padx=20, pady=12)
+                 font=("Helvetica", 13, "bold")).pack(side="left", padx=20, pady=12)
         tk.Label(hdr, text="// SERVER LAUNCHER", bg=PANEL, fg=DIM,
                  font=MONO_SM).pack(side="left", pady=12)
 
     def _build_settings(self):
         outer = tk.Frame(self, bg=BG)
-        outer.pack(fill="x", padx=20, pady=(12, 0))
+        outer.pack(fill="x", padx=20, pady=(0, 5))
 
         f = tk.Frame(outer, bg=BG)
         f.pack(fill="x")
@@ -115,36 +124,35 @@ class ServerLauncher(tk.Tk):
 
         r = 0
         # ── Camera ────────────────────────────────────────────────────────────
-        _section_label(f, "CAMERA", r);               r += 2
-        _label(f, "Camera index",  r, 0)
-        self._camera = _entry(f, 0, r, 1, width=5)
-        _label(f, "FPS",           r, 2)
-        self._fps    = _entry(f, 20, r, 3, width=5);  r += 1
+        _section_label(f, "CAMERA", r); r += 2
+        _label(f, "Camera index", r, 0)
+        self._camera = _entry(f, srv.CAMERA_INDEX, r, 1, width=8)
+        _label(f, "FPS", r, 2)
+        self._fps = _entry(f, srv.STREAM_FPS, r, 3, width=8); r += 1
 
-        _label(f, "Width (px)",    r, 0)
-        self._width  = _entry(f, 1280, r, 1, width=6)
-        _label(f, "Height (px)",   r, 2)
-        self._height = _entry(f, 720, r, 3, width=6); r += 1
+        _label(f, "Width (px)", r, 0)
+        self._width = _entry(f, srv.STREAM_WIDTH, r, 1, width=8)
+        _label(f, "Height (px)", r, 2)
+        self._height = _entry(f, srv.STREAM_HEIGHT, r, 3, width=8); r += 1
 
         # ── Network ───────────────────────────────────────────────────────────
-        _section_label(f, "NETWORK", r);              r += 2
-        _label(f, "Port",          r, 0)
-        self._port   = _entry(f, 8090, r, 1, width=6)
-        _label(f, "Password",      r, 2)
-        self._pwd    = _entry(f, "", r, 3, width=14, show="●"); r += 1
+        _section_label(f, "NETWORK", r); r += 2
+        _label(f, "Port", r, 0)
+        self._port = _entry(f, srv.FLASK_PORT, r, 1, width=8)
+        _label(f, "Password", r, 2)
+        self._pwd = _entry(f, "", r, 3, width=14, show="●"); r += 1
 
         # ── Audio ─────────────────────────────────────────────────────────────
-        _section_label(f, "AUDIO", r);                r += 2
-        _label(f, "Device index",  r, 0)
-        self._audio  = _entry(f, "", r, 1, width=5)
-        tk.Label(f, text="(blank = system default)", bg=BG, fg=DIM,
-                 font=MONO_SM).grid(row=r, column=2, columnspan=2,
-                                    sticky="w", padx=(0, 8)); r += 1
+        _section_label(f, "AUDIO", r); r += 2
+        _label(f, "Device index", r, 0)
+        self._audio = _entry(f, "", r, 1, width=8)
+        tk.Label(f, text="(blank = system default)", bg=BG, fg=DIM, font=MONO_SM).grid(row=r,
+                    column=2, columnspan=2, sticky="w", padx=(0, 8)); r += 1
 
         # ── Features ──────────────────────────────────────────────────────────
-        _section_label(f, "FEATURES", r);             r += 2
+        _section_label(f, "FEATURES", r); r += 2
         self._motion = _check(f, "Enable motion detection", False, r, 0); r += 1
-        self._record = _check(f, "Enable recordings",       False, r, 0); r += 1
+        self._record = _check(f, "Enable recordings", False, r, 0); r += 1
 
     def _build_controls(self):
         frame = tk.Frame(self, bg=BG)
@@ -157,28 +165,28 @@ class ServerLauncher(tk.Tk):
             command=self._toggle,
             bg=GREEN, fg=BG,
             activebackground="#00c060", activeforeground=BG,
-            font=("Courier New", 10, "bold"),
+            font=("Helvetica", 10, "bold"),
             relief="flat", padx=20, pady=9, cursor="hand2", bd=0,
         )
         self._btn.pack(fill="x")
 
     def _build_console(self):
         hdr = tk.Frame(self, bg=PANEL)
-        hdr.pack(fill="x")
+        hdr.pack(fill="x", pady=(10, 0))
         tk.Label(hdr, text="CONSOLE OUTPUT", bg=PANEL, fg=DIM,
                  font=MONO_SM).pack(side="left", padx=20, pady=5)
         self._dot = tk.Label(hdr, text="●", bg=PANEL, fg=DIM, font=MONO)
         self._dot.pack(side="right", padx=20, pady=5)
 
         self._console = scrolledtext.ScrolledText(
-            self, bg="#060809", fg=TEXT, font=("Courier New", 8),
+            self, bg="#060809", fg=TEXT, font=("Helvetica", 8),
             relief="flat", bd=0, state="disabled", wrap="word", height=12,
         )
         self._console.pack(fill="both", expand=True)
-        self._console.tag_config("ok",    foreground=GREEN)
-        self._console.tag_config("err",   foreground=RED)
-        self._console.tag_config("warn",  foreground=AMBER)
-        self._console.tag_config("dim",   foreground=DIM)
+        self._console.tag_config("ok", foreground=GREEN)
+        self._console.tag_config("err", foreground=RED)
+        self._console.tag_config("warn", foreground=AMBER)
+        self._console.tag_config("dim", foreground=DIM)
 
     # ── Server lifecycle ──────────────────────────────────────────────────────
     def _toggle(self):
@@ -213,14 +221,8 @@ class ServerLauncher(tk.Tk):
                    for i, c in enumerate(cmd)]
         self._log(f"$ {' '.join(display)}\n", "dim")
         try:
-            self._proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                cwd=_HERE,
-            )
+            self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=_HERE,)
         except Exception as exc:
             self._log(f"Error: {exc}\n", "err")
             return
@@ -248,8 +250,9 @@ class ServerLauncher(tk.Tk):
     # ── Output reader (background thread) ────────────────────────────────────
     def _read_output(self):
         try:
-            for line in self._proc.stdout:
-                self._q.put(line)
+            if self._proc is not None:
+                for line in self._proc.stdout:
+                    self._q.put(line)
         except Exception:
             pass
         finally:
@@ -293,6 +296,13 @@ class ServerLauncher(tk.Tk):
 
 
 if __name__ == "__main__":
+    print("RemoteCamera GUI Launcher")
+    print("=" * 80)
+    print("Run with:\tpython gui.py")
+    print("\nServer Local Access: http://localhost:port")
+    print("Server Remote Access: http://<public-ip>:port")
+    print("=" * 80)
+
     app = ServerLauncher()
     app.protocol("WM_DELETE_WINDOW", app._on_close)
     app.mainloop()
