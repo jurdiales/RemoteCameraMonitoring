@@ -24,10 +24,11 @@ RED      = "#ff3d3d"
 AMBER    = "#ffa726"
 TEXT     = "#c8cdd4"
 DIM      = "#4a5060"
+FONT     = "Helvetica"
 FONT_SZ  = 11
-MONO     = ("Helvetica", FONT_SZ)
-LABELS   = ("Helvetica", 12, "bold")
-MONO_SM  = ("Helvetica", FONT_SZ)
+MONO     = (FONT, FONT_SZ)
+LABELS   = (FONT, 12, "bold")
+MONO_SM  = (FONT, FONT_SZ)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER_SCRIPT = os.path.join(_HERE, "server.py")
@@ -88,8 +89,8 @@ class ServerLauncher(tk.Tk):
         super().__init__()
         self.title("RemoteCamera — Launcher")
         self.configure(bg=BG)
-        self.resizable(True, True)
-        self.minsize(500, 520)
+        self.resizable(True, False)
+        self.minsize(800, 400)
 
         self._proc   = None          # subprocess.Popen handle
         self._q      = queue.Queue() # output lines from the server process
@@ -100,21 +101,29 @@ class ServerLauncher(tk.Tk):
 
     # ── UI ────────────────────────────────────────────────────────────────────
     def _build_ui(self):
-        self._build_header()
-        self._build_settings()
-        self._build_controls()
-        self._build_console()
+        main = tk.Frame(self, bg=BG)   # main has a grid of [2 x 2]
+        main.pack(fill='x', pady=(0, 20))
+        main.columnconfigure(0, minsize=400, weight=0)
+        main.columnconfigure(1, minsize=600, weight=1)
 
-    def _build_header(self):
-        hdr = tk.Frame(self, bg=PANEL)
-        hdr.pack(fill="x")
-        tk.Label(hdr, text="RemoteCamera", bg=PANEL, fg=GREEN,
-                 font=("Helvetica", 13, "bold")).pack(side="left", padx=20, pady=12)
-        tk.Label(hdr, text="// SERVER LAUNCHER", bg=PANEL, fg=DIM,
+        left_panel = tk.Frame(main, bg=BG)
+        left_panel.grid(row=1, column=0)
+
+        self._build_header(main)
+        self._build_settings(left_panel)
+        self._build_controls(left_panel)
+        self._build_console(main)
+
+    def _build_header(self, parent):
+        header = tk.Frame(parent, bg=PANEL)
+        header.grid(row=0, column=0, columnspan=1, sticky="we")
+        tk.Label(header, text="RemoteCamera", bg=PANEL, fg=GREEN,
+                 font=(FONT, 13, "bold")).pack(side="left", padx=20, pady=12)
+        tk.Label(header, text="// SERVER LAUNCHER", bg=PANEL, fg=DIM,
                  font=MONO_SM).pack(side="left", pady=12)
 
-    def _build_settings(self):
-        outer = tk.Frame(self, bg=BG)
+    def _build_settings(self, parent):
+        outer = tk.Frame(parent, bg=BG)
         outer.pack(fill="x", padx=20, pady=(0, 5))
 
         f = tk.Frame(outer, bg=BG)
@@ -154,32 +163,28 @@ class ServerLauncher(tk.Tk):
         self._motion = _check(f, "Enable motion detection", False, r, 0); r += 1
         self._record = _check(f, "Enable recordings", False, r, 0); r += 1
 
-    def _build_controls(self):
-        frame = tk.Frame(self, bg=BG)
+    def _build_controls(self, parent):
+        frame = tk.Frame(parent, bg=BG)
         frame.pack(fill="x", padx=20, pady=12)
 
         self._btn_var = tk.StringVar(value="▶   START SERVER")
-        self._btn = tk.Button(
-            frame,
-            textvariable=self._btn_var,
-            command=self._toggle,
-            bg=GREEN, fg=BG,
-            activebackground="#00c060", activeforeground=BG,
-            font=("Helvetica", 10, "bold"),
-            relief="flat", padx=20, pady=9, cursor="hand2", bd=0,
-        )
+        self._btn = tk.Button(frame, textvariable=self._btn_var, command=self._toggle,
+            bg=GREEN, fg=BG, activebackground="#00c060", activeforeground=BG,
+            font=(FONT, 10, "bold"), relief="flat", padx=20, pady=9, cursor="hand2", bd=0)
         self._btn.pack(fill="x")
 
-    def _build_console(self):
-        hdr = tk.Frame(self, bg=PANEL)
-        hdr.pack(fill="x", pady=(10, 0))
-        tk.Label(hdr, text="CONSOLE OUTPUT", bg=PANEL, fg=DIM,
+    def _build_console(self, parent):
+        console_panel = tk.Frame(parent, bg=BG)
+        console_panel.grid(row=1, column=1, sticky='nswe', padx=(0, 2))
+        header = tk.Frame(parent, bg=PANEL)
+        header.grid(row=0, column=1, sticky='nswe')
+        tk.Label(header, text="CONSOLE OUTPUT", bg=PANEL, fg=DIM,
                  font=MONO_SM).pack(side="left", padx=20, pady=5)
-        self._dot = tk.Label(hdr, text="●", bg=PANEL, fg=DIM, font=MONO)
+        self._dot = tk.Label(header, text="●", bg=PANEL, fg=DIM, font=MONO)
         self._dot.pack(side="right", padx=20, pady=5)
 
         self._console = scrolledtext.ScrolledText(
-            self, bg="#060809", fg=TEXT, font=("Helvetica", 8),
+            console_panel, bg="#060809", fg=TEXT, font=(FONT, 8),
             relief="flat", bd=0, state="disabled", wrap="word", height=12,
         )
         self._console.pack(fill="both", expand=True)
@@ -296,6 +301,7 @@ class ServerLauncher(tk.Tk):
 
 
 if __name__ == "__main__":
+    print("=" * 80)
     print("RemoteCamera GUI Launcher")
     print("=" * 80)
     print("Run with:\tpython gui.py")
