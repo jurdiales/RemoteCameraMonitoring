@@ -31,24 +31,22 @@ python -m pip install -r requirements.txt
 ## 3. Arrancar el servidor
 
 ```
-python server.py
+python gui.py
 ```
 
-Verás algo así:
+Se abrirá una ventana de configuración (Launcher) donde podrás:
+- Seleccionar tu **Cámara** y dispositivo de **Audio** (Micrófono).
+- Configurar la **Resolución**, los **FPS** (fotogramas por segundo) y el **Puerto** de red.
+- Activar o desactivar funciones como **Detección de movimiento** y **Grabación**.
+
+Haz clic en el botón verde **▶ START SERVER** y espera unos segundos. En la consola de la derecha verás algo así:
 ```
-=======================================================
-  AviarCam — Sistema de Vigilancia Doméstico
-=======================================================
-  Cámara:       índice 0
-  Resolución:   1280×720 @ 20fps
-  Acceso local: http://localhost:8080
-=======================================================
+Server Local Access: http://localhost:8090
 ```
 
-Abre **http://localhost:8080** en el navegador del mismo portátil para comprobar que funciona.
+Abre **http://localhost:8090** en el navegador del mismo portátil para comprobar que funciona.
 
-> **¿No se ve imagen?** Prueba a cambiar `CAMERA_INDEX = 0` por `CAMERA_INDEX = 1`
-> en las primeras líneas de `server.py` y reinicia.
+> **¿No se ve imagen o no hay sonido?** Comprueba en el Launcher que has seleccionado la cámara y el dispositivo de audio correctos antes de arrancar el servidor.
 
 ---
 
@@ -96,8 +94,8 @@ La interfaz varía según el fabricante, pero el proceso es similar:
    |--------------------|-------------------------------|
    | Nombre / Servicio  | `AviarCam`                    |
    | Protocolo          | `TCP`                         |
-   | Puerto externo     | `8080`                        |
-   | Puerto interno     | `8080`                        |
+   | Puerto externo     | `8090`                        |
+   | Puerto interno     | `8090`                        |
    | IP de destino      | `192.168.1.105` (la del portátil) |
    | Estado             | Habilitado / Activo           |
 
@@ -115,7 +113,7 @@ Consulta el apartado 5 para solucionarlo.
 
 Desde cualquier dispositivo con datos móviles o red diferente, abre:
 ```
-http://88.12.34.56:8080
+http://88.12.34.56:8090
 ```
 
 ¡Ya puedes ver a tu canario y tu agapórni desde cualquier lugar!
@@ -134,7 +132,7 @@ Si tu IP pública cambia, necesitas un servicio DDNS que te dé un nombre fijo.
    tu IP automáticamente en segundo plano
 4. A partir de ahora accede con:
    ```
-   http://mis-pajaros.duckdns.org:8080
+   http://mis-pajaros.duckdns.org:8090
    ```
 
 ---
@@ -146,7 +144,7 @@ Si el acceso externo no funciona, puede que el firewall esté bloqueando:
 1. Abre **Panel de control → Sistema y seguridad → Firewall de Windows Defender**
 2. Haz clic en **Configuración avanzada**
 3. **Reglas de entrada → Nueva regla**
-4. Tipo: **Puerto** → TCP → Puerto específico: `8080`
+4. Tipo: **Puerto** → TCP → Puerto específico: `8090`
 5. Acción: **Permitir la conexión**
 6. Aplica a: Dominio, Privado y Público
 7. Nombre: `AviarCam`
@@ -161,26 +159,24 @@ Para que el servidor arranque solo cuando enciendas el portátil:
    ```batch
    @echo off
    cd /d C:\ruta\donde\guardaste\los\archivos
-   python server.py
+   python gui.py
    ```
 2. Pulsa `Win + R`, escribe `shell:startup` y presiona Enter
 3. Copia (o crea un acceso directo de) `iniciar_aviarcam.bat` en esa carpeta
 
+*(Nota: Al usar `gui.py` tendrás que pulsar "START SERVER" manualmente cada vez. Si prefieres que el servidor arranque directamente sin interfaz, puedes usar `server.py` añadiendo argumentos en la consola)*
+
 ---
 
-## 8. Ajustes avanzados en server.py
+## 8. Ajustes avanzados
 
-En las primeras líneas de `server.py` puedes personalizar:
+Gracias a la nueva interfaz gráfica (`gui.py`), la mayoría de los ajustes se configuran desde el Launcher:
+- **Cámara y Audio**: Detectados automáticamente; puedes seleccionarlos en la lista desplegable.
+- **Resolución y FPS**: Ajustables en la sección "CAMERA".
+- **Puerto y Contraseña**: Modificables en la sección "NETWORK".
+- **Detección de Movimiento y Grabación**: Activables mediante casillas.
 
-| Variable             | Descripción                                         |
-|----------------------|-----------------------------------------------------|
-| `CAMERA_INDEX`       | 0 = primera webcam, 1 = segunda, etc.               |
-| `STREAM_WIDTH/HEIGHT`| Resolución del stream                               |
-| `STREAM_FPS`         | Fotogramas por segundo (baja a 10 si va lento)      |
-| `MOTION_THRESHOLD`   | Sensibilidad de detección (sube para menos alertas) |
-| `RECORD_SECONDS`     | Segundos de grabación tras detectar movimiento      |
-| `MAX_RECORDINGS`     | Máximo de archivos antes de borrar los más viejos   |
-| `FLASK_PORT`         | Puerto del servidor (defecto: 8080)                 |
+Para opciones internas adicionales (sensibilidad de movimiento, duración de grabación, etc.), puedes seguir editando las constantes al inicio de `server.py`.
 
 ---
 
@@ -188,7 +184,7 @@ En las primeras líneas de `server.py` puedes personalizar:
 
 | Problema                        | Solución                                              |
 |---------------------------------|-------------------------------------------------------|
-| No se ve imagen                 | Cambia `CAMERA_INDEX` a 1 o 2                         |
+| No se ve imagen / no hay sonido | Cambia la cámara o el dispositivo de audio en el Launcher |
 | Imagen muy lenta                | Baja `STREAM_FPS` a 10 y `STREAM_WIDTH` a 640         |
 | No accedo desde fuera           | Verifica port forwarding y el firewall de Windows     |
 | IP pública cambia               | Instala DuckDNS (ver apartado 5)                      |
