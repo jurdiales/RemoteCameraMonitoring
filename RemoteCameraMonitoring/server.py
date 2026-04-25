@@ -281,6 +281,9 @@ class MicrophoneAudioTrack(AudioStreamTrack):
         loop = asyncio.get_running_loop()
         pcm = await loop.run_in_executor(None, self._queue.get)
 
+        if pcm is None:
+            raise Exception("Track stopped")
+
         # pcm shape: (AUDIO_CHUNK_FRAMES, AUDIO_CHANNELS), dtype int16
         # av expects shape (channels, samples) for 'fltp' or (1, samples) for s16
         samples = pcm.T  # (channels, frames)
@@ -293,8 +296,21 @@ class MicrophoneAudioTrack(AudioStreamTrack):
         return audio_frame
 
     def stop(self):
-        self._stream.stop()
-        self._stream.close()
+        if hasattr(self, '_stream'):
+            self._stream.stop()
+            self._stream.close()
+            
+        # Empty the queue and wake up any blocked get() with a None sentinel
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                break
+        try:
+            self._queue.put_nowait(None)
+        except queue.Full:
+            pass
+            
         super().stop()
 
 
