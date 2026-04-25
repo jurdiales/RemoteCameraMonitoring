@@ -8,7 +8,6 @@ Local Access: http://localhost:port
 Remote Access: http://<public-ip>:port
 """
 
-from utils import list_cameras_opencv
 import cv2
 import threading
 import time
@@ -26,7 +25,7 @@ import numpy as np
 from aiortc import RTCIceServer, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, AudioStreamTrack, RTCConfiguration
 import av
 import sounddevice as sd
-from utils import list_cameras
+from utils import list_cameras_opencv
 
 # ─────────────────────────────────────────────
 #  SETTINGS
@@ -52,15 +51,15 @@ BLUR_KERNEL         = (21, 21)      # smoothing to reduce false positives
 DILATION_KERNEL     = np.ones((5, 5), np.uint8)    # dilation to connect motion areas
 
 # Video recording
-ENABLE_RECORDINGS   = False         # enable recording
-RECORDINGS_DIR      = "recordings"  # name of the folder to store recordings
-MAX_RECORDINGS      = 50            # maximum number of recordings to store
+ENABLE_RECORDINGS   = False             # enable recording
+RECORDINGS_DIR      = "../recordings"   # name of the folder to store recordings
+MAX_RECORDINGS      = 50                # maximum number of recordings to store
 
 # Authentication
 LOGIN_PASSWORD      = ""            # password to access the web interface; leave empty to disable auth
 # ─────────────────────────────────────────────
 
-app = Flask(__name__, template_folder="templates")
+app = Flask(__name__, template_folder="../templates")
 app.secret_key = secrets.token_hex(32)  # random per-run; all sessions are invalidated on restart
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
@@ -154,13 +153,10 @@ def camera_worker():
         if currently_recording:
             if video_writer is None:
                 _cleanup_old_recordings()
-                fname = os.path.join(
-                    RECORDINGS_DIR,
-                    f"mov_{now.strftime('%Y%m%d_%H%M%S')}.mp4"
-                )
-                fourcc       = cv2.VideoWriter.fourcc('H','2','6','4')
-                actual_w     = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                actual_h     = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                fname = os.path.join(RECORDINGS_DIR, f"mov_{now.strftime('%Y%m%d_%H%M%S')}.mp4")
+                fourcc = cv2.VideoWriter.fourcc('H','2','6','4')
+                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 video_writer = cv2.VideoWriter(fname, fourcc, STREAM_FPS, (actual_w, actual_h))
             video_writer.write(frame)
         else:
