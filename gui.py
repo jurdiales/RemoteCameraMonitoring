@@ -158,12 +158,17 @@ class ServerLauncher(tk.Tk):
         self._q      = queue.Queue() # output lines from the server process
         self._reader = None          # background reader thread
 
+        graph = FilterGraph()
         # get available cameras
         self._available_cameras = []
-        graph = FilterGraph()
         camera_devices = graph.get_input_devices()
         for index, name in enumerate(camera_devices):
             self._available_cameras.append(f"{index}: {name}")
+        # get available audio sources
+        self._available_audio_sources = []
+        audio_sources = graph.get_audio_devices()
+        for index, name in enumerate(audio_sources):
+            self._available_audio_sources.append(f"{index}: {name}")
 
         generate_combobox_style(self)
         self._build_ui()
@@ -223,10 +228,8 @@ class ServerLauncher(tk.Tk):
 
         # ── Audio ─────────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "AUDIO", r); r += 2
-        _label(f, "Device index", r, 0)
-        self._audio = _entry(f, "", r, 1, width=8)
-        tk.Label(f, text="(blank = system default)", bg=BG, fg=DIM, font=MONO_SM).grid(row=r,
-                    column=2, columnspan=2, sticky="w", padx=(0, 8)); r += 1
+        _label(f, "Device", r, 0)
+        self._audio_selector = _combobox(f, self._available_audio_sources, r, 1); r += 1
 
         # ── Features ──────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "FEATURES", r); r += 2
@@ -271,16 +274,14 @@ class ServerLauncher(tk.Tk):
     def _build_cmd(self):
         cmd = [sys.executable, SERVER_SCRIPT]
         cmd += ["--camera", self._camera_selector.get().split(':')[0]]
-        cmd += ["--width", self._width.get()]
-        cmd += ["--height", self._height.get()]
-        cmd += ["--fps", self._fps.get()]
-        cmd += ["--port", self._port.get()]
+        cmd += ["--audio-device", self._audio_selector.get().split(':')[0]]
+        cmd += ["--width", self._width.get().strip()]
+        cmd += ["--height", self._height.get().strip()]
+        cmd += ["--fps", self._fps.get().strip()]
+        cmd += ["--port", self._port.get().strip()]
         pwd = self._pwd.get().strip()
         if pwd:
             cmd += ["--password", pwd]
-        audio = self._audio.get().strip()
-        if audio:
-            cmd += ["--audio-device", audio]
         if self._motion.get():
             cmd.append("--motion")
         if self._record.get():
