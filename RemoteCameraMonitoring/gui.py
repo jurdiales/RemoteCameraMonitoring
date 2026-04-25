@@ -311,11 +311,24 @@ class ServerLauncher(tk.Tk):
         self._reader.start()
 
     def _stop(self):
+        terminated = False
         if self._proc:
             self._proc.terminate()
+            try:
+                self._proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait()
             self._proc = None
-        self._set_stopped()
-        self._log("— Server stopped —\n", "warn")
+            terminated = True
+            
+        if self._reader and self._reader.is_alive():
+            self._reader.join(timeout=1)
+            self._reader = None
+        
+        if terminated:
+            self._set_stopped()
+            self._log("— Server stopped —\n", "warn")
 
     def _set_stopped(self):
         self._proc = None
@@ -373,8 +386,7 @@ class ServerLauncher(tk.Tk):
 
     # ── Window close ─────────────────────────────────────────────────────────────────────────────────────────────────
     def _on_close(self):
-        if self._proc:
-            self._proc.terminate()
+        self._stop()
         self.destroy()
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
