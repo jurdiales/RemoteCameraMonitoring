@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23111417'/%3E%3Crect x='3' y='10' width='20' height='14' rx='2.5' fill='%2300e676'/%3E%3Cpolygon points='13,7 17,10 9,10' fill='%2300e676'/%3E%3Ccircle cx='13' cy='17' r='4.5' fill='%23111417'/%3E%3Ccircle cx='13' cy='17' r='2.5' fill='%230a0c0e'/%3E%3Crect x='24' y='13' width='5' height='8' rx='2' fill='%2300e676'/%3E%3C/svg%3E">
-    <title>RemoteCamera — Vigilancia</title>
+    <title>RemoteCamera — Surveillance</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;500;700&display=swap" rel="stylesheet">
     <style>
@@ -373,7 +373,7 @@
 <body>
     
     <header>
-        <div class="logo">RemoteCamera <span>// VIGILANCIA DOMÉSTICA</span></div>
+        <div class="logo">RemoteCamera <span>// HOME SURVEILLANCE</span></div>
         {% if auth_enabled %}<a class="logout-btn" href="/logout">LOGOUT</a>{% endif %}
         <div class="header-meta">
             <div id="clock">--:--:--</div>
@@ -416,12 +416,12 @@
             
             <!-- Estado -->
             <div class="panel-block">
-                <div class="panel-label">Estado del sistema</div>
+                <div class="panel-label">System status</div>
                 <div class="status-row">
-                    <div class="badge"><div class="dot ok" id="dot-live"></div><span id="lbl-live">EN VIVO</span></div>
-                    <div class="badge"><div class="dot" id="dot-motion"></div><span id="lbl-motion">Sin movimiento</span></div>
-                    <div class="badge"><div class="dot" id="dot-rec"></div><span id="lbl-rec">Sin grabar</span></div>
-                    <div class="badge"><div class="dot ok" id="dot-audio"></div><span id="lbl-audio">Audio activo</span></div>
+                    <div class="badge"><div class="dot ok" id="dot-live"></div><span id="lbl-live">LIVE</span></div>
+                    <div class="badge"><div class="dot" id="dot-motion"></div><span id="lbl-motion">No motion</span></div>
+                    <div class="badge"><div class="dot" id="dot-rec"></div><span id="lbl-rec">Not recording</span></div>
+                    <div class="badge"><div class="dot ok" id="dot-audio"></div><span id="lbl-audio">Audio active</span></div>
                 </div>
             </div>
             
@@ -429,42 +429,42 @@
             <div class="panel-block">
                 <div class="panel-label">Stream info</div>
                 <div class="stream-info">
-                    <div class="stream-row"><span class="sk">Resolución</span><span class="sv dim" id="si-resolution">—</span></div>
-                    <div class="stream-row"><span class="sk">Codec video</span><span class="sv dim" id="si-vcodec">—</span></div>
-                    <div class="stream-row"><span class="sk">Codec audio</span><span class="sv dim" id="si-acodec">—</span></div>
-                    <div class="stream-row"><span class="sk">FPS recibidos</span><span class="sv dim" id="si-fps">—</span></div>
-                    <div class="stream-row"><span class="sk">Bitrate video</span><span class="sv dim" id="si-bitrate">—</span></div>
+                    <div class="stream-row"><span class="sk">Resolution</span><span class="sv dim" id="si-resolution">—</span></div>
+                    <div class="stream-row"><span class="sk">Video codec</span><span class="sv dim" id="si-vcodec">—</span></div>
+                    <div class="stream-row"><span class="sk">Audio codec</span><span class="sv dim" id="si-acodec">—</span></div>
+                    <div class="stream-row"><span class="sk">Received FPS</span><span class="sv dim" id="si-fps">—</span></div>
+                    <div class="stream-row"><span class="sk">Video bitrate</span><span class="sv dim" id="si-bitrate">—</span></div>
                 </div>
             </div>
 
             <!-- Estadísticas -->
             <div class="panel-block">
-                <div class="panel-label">Estadísticas</div>
+                <div class="panel-label">Statistics</div>
                 <div class="stat-grid">
                     <div class="stat-item">
                         <span class="stat-val" id="stat-events">0</span>
-                        <span class="stat-key">Alertas</span>
+                        <span class="stat-key">Alerts</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-val" id="stat-uptime">00:00</span>
-                        <span class="stat-key">Activo</span>
+                        <span class="stat-key">Uptime</span>
                     </div>
                 </div>
             </div>
             
             <!-- Registro de eventos -->
             <div class="panel-block">
-                <div class="panel-label">Registro de eventos</div>
+                <div class="panel-label">Event log</div>
                 <div class="event-list" id="event-list">
-                    <div class="event-item"><span class="event-time">--:--:--</span><span class="event-label">Sin eventos aún</span></div>
+                    <div class="event-item"><span class="event-time">--:--:--</span><span class="event-label">No events yet</span></div>
                 </div>
             </div>
             
             <!-- Grabaciones -->
             <div class="panel-block">
-                <div class="panel-label">Últimas grabaciones</div>
+                <div class="panel-label">Latest recordings</div>
                 <div class="rec-list" id="rec-list">
-                    <div class="rec-item">Sin grabaciones aún</div>
+                    <div class="rec-item">No recordings yet</div>
                 </div>
             </div>
             
@@ -472,8 +472,8 @@
     </main>
     
     <footer>
-        <span>Puerto <span id="port-val">--</span> · WebRTC stream</span>
-        <span>Tiempo activo: <span id="uptime-val">--</span></span>
+        <span>Port <span id="port-val">--</span> · WebRTC stream</span>
+        <span>Uptime: <span id="uptime-val">--</span></span>
     </footer>
     
     <script>
@@ -483,7 +483,7 @@
             document.getElementById('clock').textContent =
             now.toTimeString().slice(0, 8);
             document.getElementById('date-display').textContent =
-            now.toLocaleDateString('es-ES', {weekday:'short', day:'2-digit', month:'short', year:'numeric'});
+            now.toLocaleDateString('en-US', {weekday:'short', day:'2-digit', month:'short', year:'numeric'});
         }
         setInterval(updateClock, 1000);
         updateClock();
@@ -519,7 +519,7 @@
             video.srcObject = null;
             mjpeg.src = '/stream';
             mjpeg.style.display = 'block';
-            document.getElementById('lbl-live').textContent = 'EN VIVO (MJPEG)';
+            document.getElementById('lbl-live').textContent = 'LIVE (MJPEG)';
         }
 
         const pc = new RTCPeerConnection({
@@ -639,14 +639,14 @@
                 dotAudio.classList.remove('ok');
                 dotAudio.style.background = 'var(--text-dim)';
                 dotAudio.style.boxShadow  = 'none';
-                lblAudio.textContent = 'Audio silenciado';
+                lblAudio.textContent = 'Audio muted';
             } else {
                 muteBtn.textContent = '🔊';
                 muteBtn.classList.remove('muted');
                 dotAudio.style.background = '';
                 dotAudio.style.boxShadow  = '';
                 dotAudio.classList.add('ok');
-                lblAudio.textContent = 'Audio activo';
+                lblAudio.textContent = 'Audio active';
             }
         });
         
@@ -663,12 +663,12 @@
                 if (d.motion) {
                     flash.classList.add('active');
                     dotM.classList.add('alert');
-                    lblM.textContent = '⚠ MOVIMIENTO DETECTADO';
+                    lblM.textContent = '⚠ MOTION DETECTED';
                     lblM.style.color = 'var(--red)';
                 } else {
                     flash.classList.remove('active');
                     dotM.classList.remove('alert');
-                    lblM.textContent = 'Sin movimiento';
+                    lblM.textContent = 'No motion';
                     lblM.style.color = '';
                 }
                 
@@ -677,11 +677,11 @@
                 const lblR = document.getElementById('lbl-rec');
                 if (d.recording) {
                     dotR.classList.add('rec');
-                    lblR.textContent = '⏺ Grabando';
+                    lblR.textContent = '⏺ Recording';
                     lblR.style.color = 'var(--red)';
                 } else {
                     dotR.classList.remove('rec');
-                    lblR.textContent = 'Sin grabar';
+                    lblR.textContent = 'Not recording';
                     lblR.style.color = '';
                 }
                 
@@ -697,7 +697,7 @@
                     list.innerHTML = d.events.map(e =>
                         `<div class="event-item">
                             <span class="event-time">${e.time}</span>
-                            <span class="event-label">Movimiento detectado</span>
+                            <span class="event-label">Motion detected</span>
                         </div>`
                     ).join('');
                 }
@@ -710,7 +710,7 @@
                 const d = await r.json();
                 const el = document.getElementById('rec-list');
                 if (d.length === 0) {
-                    el.innerHTML = '<div class="rec-item">Sin grabaciones aún</div>';
+                    el.innerHTML = '<div class="rec-item">No recordings yet</div>';
                 } else {
                     el.innerHTML = d.map(f =>
                     `<div class="rec-item" title="${f.name}">📹 ${f.name} · ${f.size}</div>`

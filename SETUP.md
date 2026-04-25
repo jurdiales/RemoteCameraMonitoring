@@ -1,192 +1,208 @@
-# AviarCam — Guía de Instalación y Configuración
-## Sistema de vigilancia doméstico para mascotas
+# Remote Camera Monitoring — Installation and Configuration Guide
+## Home surveillance system for pets
 
 ---
 
-## 1. Requisitos previos
+## 1. Prerequisites
 
-- **Python 3.9 o superior** — descarga en https://python.org  
-  ⚠️ Durante la instalación marca la opción **"Add Python to PATH"**
-- **Webcam** conectada al portátil (USB o integrada)
-- Portátil **siempre encendido y conectado a la red** mientras quieras vigilar
+- **Python 3.9 or higher** — download from https://python.org  
+  ⚠️ During installation, check the **"Add Python to PATH"** option
+- **Webcam** connected to the laptop (USB or built-in)
+- Laptop **always on and connected to the network** while you want to monitor
 
 ---
 
-## 2. Instalación de dependencias
+## 2. Installing Dependencies
 
-Abre el **Símbolo del sistema (CMD)** o **PowerShell** y ejecuta:
+Open the **Command Prompt (CMD)** or **PowerShell** and run:
 
 ```
-cd C:\ruta\donde\guardaste\los\archivos
+cd C:\path\to\where\you\saved\the\files
 pip install -r requirements.txt
 ```
 
-Si `pip` no se reconoce, prueba con:
+If `pip` is not recognized, try:
 ```
 python -m pip install -r requirements.txt
 ```
 
 ---
 
-## 3. Arrancar el servidor
+## 3. Starting the Server
 
 ```
 python gui.py
 ```
 
-Se abrirá una ventana de configuración (Launcher) donde podrás:
-- Seleccionar tu **Cámara** y dispositivo de **Audio** (Micrófono).
-- Configurar la **Resolución**, los **FPS** (fotogramas por segundo) y el **Puerto** de red.
-- Activar o desactivar funciones como **Detección de movimiento** y **Grabación**.
+A configuration window (Launcher) will open where you can:
+- Select your **Camera** and **Audio** device (Microphone).
+- Configure the **Resolution**, **FPS** (frames per second), and the network **Port**.
+- Enable or disable features like **Motion Detection** and **Recording**.
 
-Haz clic en el botón verde **▶ START SERVER** y espera unos segundos. En la consola de la derecha verás algo así:
+Click the green **▶ START SERVER** button and wait a few seconds. In the console on the right, you will see something like this:
 ```
 Server Local Access: http://localhost:8090
 ```
 
-Abre **http://localhost:8090** en el navegador del mismo portátil para comprobar que funciona.
+Open **http://localhost:8090** in the browser of the same laptop to verify that it works.
 
-> **¿No se ve imagen o no hay sonido?** Comprueba en el Launcher que has seleccionado la cámara y el dispositivo de audio correctos antes de arrancar el servidor.
+> **No image or sound?** Check in the Launcher that you have selected the correct camera and audio device before starting the server.
 
 ---
 
-## 4. Acceso remoto mediante Port Forwarding
+## 4. Remote Access via Port Forwarding
 
-Esta es la parte más importante para ver la cámara desde fuera de casa.
+This is the most important part to view the camera from outside your home.
 
-### 4.1 Conoce la IP local del portátil
+### 4.1 Find your laptop's local IP
 
-En CMD ejecuta:
+In CMD run:
 ```
 ipconfig
 ```
-Busca la línea **Dirección IPv4** bajo tu adaptador Wi-Fi o Ethernet.
-Ejemplo: `192.168.1.105`
+Look for the **IPv4 Address** line under your Wi-Fi or Ethernet adapter.
+Example: `192.168.1.105`
 
-**Apunta esa IP** — la necesitarás en el paso 4.3.
+**Write down this IP** — you will need it in step 4.3.
 
-### 4.2 Asigna IP fija al portátil (recomendado)
+### 4.2 Assign a static IP to your laptop (recommended)
 
-Para que la IP local no cambie tras cada reinicio del router:
+To prevent the local IP from changing after each router reboot:
 
-1. Ve a **Configuración → Red e Internet → Wi-Fi → Propiedades de hardware**
-2. Selecciona **Editar** en "Asignación de IP"
-3. Cambia a **Manual** y activa IPv4
-4. Introduce:
-   - Dirección IP: `192.168.1.105` (la que anotaste arriba)
-   - Máscara de subred: `255.255.255.0`
-   - Puerta de enlace: IP de tu router (normalmente `192.168.1.1`)
-   - DNS preferido: `8.8.8.8`
+1. Go to **Settings → Network & Internet → Wi-Fi → Hardware properties**
+2. Select **Edit** under "IP assignment"
+3. Change to **Manual** and turn on IPv4
+4. Enter:
+   - IP Address: `192.168.1.105` (the one you wrote down above)
+   - Subnet mask: `255.255.255.0`
+   - Gateway: your router's IP (usually `192.168.1.1`)
+   - Preferred DNS: `8.8.8.8`
 
-### 4.3 Configura el reenvío de puertos en tu router
+### 4.3 Configure Port Forwarding on your router
 
-La interfaz varía según el fabricante, pero el proceso es similar:
+The interface varies by manufacturer, but the process is similar:
 
-1. Abre un navegador y ve a la dirección de tu router:
+1. Open a browser and go to your router's address:
    - Movistar/O2: `192.168.1.1`
    - Vodafone: `192.168.0.1`
    - Orange: `192.168.1.1`
-2. Introduce usuario y contraseña (suelen estar en la pegatina del router)
-3. Busca la sección: **"Port Forwarding"**, **"NAT"**, **"Virtual Servers"** o similar
-4. Crea una nueva regla con estos datos:
+2. Enter the username and password (usually on the router's sticker)
+3. Look for the section: **"Port Forwarding"**, **"NAT"**, **"Virtual Servers"** or similar
+4. Create a new rule with these details:
 
-   | Campo              | Valor                         |
+   | Field              | Value                         |
    |--------------------|-------------------------------|
-   | Nombre / Servicio  | `AviarCam`                    |
-   | Protocolo          | `TCP`                         |
-   | Puerto externo     | `8090`                        |
-   | Puerto interno     | `8090`                        |
-   | IP de destino      | `192.168.1.105` (la del portátil) |
-   | Estado             | Habilitado / Activo           |
+   | Name / Service     | `RemoteMonitoring`                    |
+   | Protocol           | `TCP`                         |
+   | External port      | `8090`                        |
+   | Internal port      | `8090`                        |
+   | Destination IP     | `192.168.1.105` (the laptop's IP) |
+   | Status             | Enabled / Active              |
 
-5. Guarda y reinicia el router si te lo pide.
+5. Save and restart the router if prompted.
 
-### 4.4 Conoce tu IP pública
+### 4.4 Find your public IP
 
-Ve a https://www.whatismyip.com — te mostrará tu IP pública.  
-Ejemplo: `88.12.34.56`
+Go to https://www.whatismyip.com — it will show you your public IP.  
+Example: `88.12.34.56`
 
-⚠️ **Esta IP puede cambiar** si tu ISP usa IPs dinámicas (lo habitual).  
-Consulta el apartado 5 para solucionarlo.
+⚠️ **This IP can change** if your ISP uses dynamic IPs (which is standard).  
+Check section 5 to fix this.
 
-### 4.5 Accede desde fuera
+### 4.5 Access from outside
 
-Desde cualquier dispositivo con datos móviles o red diferente, abre:
+From any device with mobile data or a different network, open:
 ```
 http://88.12.34.56:8090
 ```
 
-¡Ya puedes ver a tu canario y tu agapórni desde cualquier lugar!
+You can now watch your canary and lovebird from anywhere!
 
 ---
 
-## 5. IP dinámica — Configura un nombre de dominio gratuito (DDNS)
+## 5. Dynamic IP — Set up a free domain name (DDNS)
 
-Si tu IP pública cambia, necesitas un servicio DDNS que te dé un nombre fijo.
+If your public IP changes, you need a DDNS service to give you a fixed name.
 
-### Opción recomendada: DuckDNS (gratis y sencillo)
+### Recommended option: DuckDNS (free and simple)
 
-1. Ve a https://www.duckdns.org y regístrate con Google o GitHub
-2. Crea un subdominio, por ejemplo: `mis-pajaros.duckdns.org`
-3. Descarga el **cliente Windows** desde la misma web para que actualice
-   tu IP automáticamente en segundo plano
-4. A partir de ahora accede con:
+1. Go to https://www.duckdns.org and log in with Google or GitHub
+2. Create a subdomain, for example: `my-birds.duckdns.org`
+3. Download the **Windows client** from the same website so it updates
+   your IP automatically in the background
+4. From now on, access with:
    ```
-   http://mis-pajaros.duckdns.org:8090
+   http://my-birds.duckdns.org:8090
    ```
 
 ---
 
-## 6. Abrir el puerto en el Firewall de Windows
+## 6. Open the port in Windows Firewall
 
-Si el acceso externo no funciona, puede que el firewall esté bloqueando:
+If external access doesn't work, the firewall might be blocking it:
 
-1. Abre **Panel de control → Sistema y seguridad → Firewall de Windows Defender**
-2. Haz clic en **Configuración avanzada**
-3. **Reglas de entrada → Nueva regla**
-4. Tipo: **Puerto** → TCP → Puerto específico: `8090`
-5. Acción: **Permitir la conexión**
-6. Aplica a: Dominio, Privado y Público
-7. Nombre: `AviarCam`
+1. Open **Control Panel → System and Security → Windows Defender Firewall**
+2. Click on **Advanced settings**
+3. **Inbound Rules → New Rule**
+4. Type: **Port** → TCP → Specific local ports: `8090`
+5. Action: **Allow the connection**
+6. Apply to: Domain, Private and Public
+7. Name: `RemoteMonitoring`
 
 ---
 
-## 7. Inicio automático con Windows
+## 7. Automatic startup with Windows
 
-Para que el servidor arranque solo cuando enciendas el portátil:
+For the server to start automatically when you turn on the laptop:
 
-1. Crea un archivo `iniciar_aviarcam.bat` con este contenido:
+1. Create a `start_RemoteMonitoring.bat` file with this content:
    ```batch
    @echo off
-   cd /d C:\ruta\donde\guardaste\los\archivos
+   cd /d C:\path\to\where\you\saved\the\files
    python gui.py
    ```
-2. Pulsa `Win + R`, escribe `shell:startup` y presiona Enter
-3. Copia (o crea un acceso directo de) `iniciar_aviarcam.bat` en esa carpeta
+2. Press `Win + R`, type `shell:startup` and press Enter
+3. Copy (or create a shortcut to) `start_RemoteMonitoring.bat` into that folder
 
-*(Nota: Al usar `gui.py` tendrás que pulsar "START SERVER" manualmente cada vez. Si prefieres que el servidor arranque directamente sin interfaz, puedes usar `server.py` añadiendo argumentos en la consola)*
+*(Note: When using `gui.py` you will have to press "START SERVER" manually each time. If you prefer the server to start directly without an interface, you can use `server.py` by adding arguments in the console)*
+
+Console arguments:
+
+| Argument | Meaning |
+| -------------------- | -------------------- |
+| -h, --help | show help message and exit |
+| -s, --setup | Run camera setup utility |
+| -c, --camera CAMERA | Camera index |
+| --width WIDTH | Stream width in pixels |
+| --height HEIGHT | Stream height in pixels |
+| --fps FPS | Stream frames per second |
+| -a, --audio-device | Audio input device index (default: system default) |
+| -r, --record | Enable recordings |
+| -m, --motion | Enable motion detection |
+| -p, --port PORT | Flask server port |
+| --password PWD | Password to protect the web interface (leave empty- to disable) |
 
 ---
 
-## 8. Ajustes avanzados
+## 8. Advanced Settings
 
-Gracias a la nueva interfaz gráfica (`gui.py`), la mayoría de los ajustes se configuran desde el Launcher:
-- **Cámara y Audio**: Detectados automáticamente; puedes seleccionarlos en la lista desplegable.
-- **Resolución y FPS**: Ajustables en la sección "CAMERA".
-- **Puerto y Contraseña**: Modificables en la sección "NETWORK".
-- **Detección de Movimiento y Grabación**: Activables mediante casillas.
+Thanks to the new graphical interface (`gui.py`), most settings are configured from the Launcher:
+- **Camera and Audio**: Detected automatically; you can select them from the dropdown list.
+- **Resolution and FPS**: Adjustable in the "CAMERA" section.
+- **Port and Password**: Modifiable in the "NETWORK" section.
+- **Motion Detection and Recording**: Toggleable via checkboxes.
 
-Para opciones internas adicionales (sensibilidad de movimiento, duración de grabación, etc.), puedes seguir editando las constantes al inicio de `server.py`.
+For additional internal options (motion sensitivity, recording duration, etc.), you can edit the constants at the top of `server.py`.
 
 ---
 
-## 9. Solución de problemas
+## 9. Troubleshooting
 
-| Problema                        | Solución                                              |
+| Problem                         | Solution                                              |
 |---------------------------------|-------------------------------------------------------|
-| No se ve imagen / no hay sonido | Cambia la cámara o el dispositivo de audio en el Launcher |
-| Imagen muy lenta                | Baja `STREAM_FPS` a 10 y `STREAM_WIDTH` a 640         |
-| No accedo desde fuera           | Verifica port forwarding y el firewall de Windows     |
-| IP pública cambia               | Instala DuckDNS (ver apartado 5)                      |
-| Error al instalar OpenCV        | Prueba `pip install opencv-python-headless`            |
-| El servidor se cierra solo      | Ejecuta con `pythonw server.py` para que no muestre ventana |
+| No image / no sound             | Change the camera or audio device in the Launcher     |
+| Stream is very slow             | Lower `STREAM_FPS` to 10 and `STREAM_WIDTH` to 640    |
+| Can't access from outside       | Verify port forwarding and Windows firewall           |
+| Public IP changes               | Install DuckDNS (see section 5)                       |
+| Error installing OpenCV         | Try `pip install opencv-python-headless`              |
+| Server closes immediately       | Run with `pythonw server.py` to hide the window       |
