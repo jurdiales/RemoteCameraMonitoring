@@ -8,6 +8,7 @@ Local Access: http://localhost:port
 Remote Access: http://<public-ip>:port
 """
 
+from utils import list_cameras_opencv
 import cv2
 import threading
 import time
@@ -477,7 +478,7 @@ if __name__ == "__main__":
 
     if args.setup:
         print("Running camera setup utility...")
-        available, working = list_cameras()
+        available, working = list_cameras_opencv()
         if len(working) == 0 and len(available) == 0:
             print("No cameras found. Please connect a camera and try again.")
             exit(0)

@@ -11,7 +11,8 @@ import sys
 import subprocess
 import threading
 import tkinter as tk
-from tkinter import scrolledtext, font
+from tkinter import scrolledtext, font, ttk
+from pygrabber.dshow_graph import FilterGraph
 
 import server as srv
 
@@ -76,6 +77,37 @@ def _check(parent, text, default, row, col, colspan=2):
     ).grid(row=row, column=col, columnspan=colspan, sticky="w", pady=2)
     return var
 
+def _style_dropdown(event):
+    widget = event.widget
+    try:
+        # Get the internal popup window path from Tcl
+        popup = widget.tk.eval(f'ttk::combobox::PopdownWindow {widget._w}')
+        widget.tk.call(popup, 'configure', '-background', BORDER)
+        widget.tk.call(popup, 'configure', '-highlightBackground', BORDER)
+        widget.tk.call(popup, 'configure', '-highlightColor', BORDER)
+        widget.tk.call(popup, 'configure', '-highlightThickness', 1)
+    except Exception:
+        pass
+
+def _combobox(parent, values, row, col, colspan=3):
+    cbb = ttk.Combobox(parent, state="readonly", justify=tk.LEFT, values=values, style='CBB.TCombobox')
+    cbb.bind('<Map>', _style_dropdown)
+    cbb.option_add('*TCombobox*Listbox*Font', MONO)
+    cbb.option_add('*TCombobox*Listbox.background', BG)
+    cbb.option_add('*TCombobox*Listbox.foreground', TEXT)
+    cbb.option_add('*TCombobox*Listbox.selectBackground', PANEL)
+    cbb.option_add('*TCombobox*Listbox.selectForeground', TEXT)
+    cbb.option_add('*TCombobox*Listbox.highlightBackground', BORDER)  # ← the white ring
+    cbb.option_add('*TCombobox*Listbox.highlightColor', BORDER)       # ← when focused
+    cbb.option_add('*TCombobox*Listbox.highlightThickness', 1)
+    cbb.option_add('*TCombobox*Listbox.borderWidth', 0)
+    cbb.option_add("*TCombobox*Listbox.relief", "flat")
+    cbb.configure(font=MONO)
+    cbb.grid(row=row, column=col, columnspan=colspan, sticky="we", pady=3, padx=20)
+    if len(values) > 0:
+        cbb.current(0)
+    return cbb
+
 def _validate_int(value):
     """Return True if *value* can be parsed as a non-negative integer."""
     try:
@@ -85,6 +117,32 @@ def _validate_int(value):
 
 def list_fonts():
     print('\n'.join(sorted(list(font.families()))))
+
+
+def generate_combobox_style(root):
+    combostyle = ttk.Style(root)
+    combostyle.theme_use('clam')
+    combostyle.configure('CBB.TCombobox',
+        foreground=TEXT,
+        fieldbackground=PANEL,
+        background=PANEL,
+        selectforeground=TEXT,
+        selectbackground=PANEL,
+        arrowcolor=TEXT,
+        bordercolor=BORDER,
+        lightcolor=PANEL,   # ← kills the inner white border of the clam theme
+        darkcolor=PANEL,    # ← kills the inner dark bevel of the clam theme
+    )
+    combostyle.map('CBB.TCombobox',
+        foreground=[('readonly', TEXT), ('focus', TEXT), ('disabled', 'gray')],
+        fieldbackground=[('readonly', PANEL), ('focus', PANEL)],  # ← prevents white-on-focus
+        background=[('active', PANEL), ('pressed', PANEL)],
+        selectbackground=[('focus', PANEL)],
+        selectforeground=[('focus', TEXT)],
+        bordercolor=[('readonly', BORDER), ('focus', BORDER)],
+        lightcolor=[('readonly', PANEL), ('focus', PANEL)],
+        darkcolor=[('readonly', PANEL), ('focus', PANEL)],
+    )
 
 # ── Main window ───────────────────────────────────────────────────────────────────────────────────────────────────────
 class ServerLauncher(tk.Tk):
@@ -100,6 +158,14 @@ class ServerLauncher(tk.Tk):
         self._q      = queue.Queue() # output lines from the server process
         self._reader = None          # background reader thread
 
+        # get available cameras
+        self._available_cameras = []
+        graph = FilterGraph()
+        camera_devices = graph.get_input_devices()
+        for index, name in enumerate(camera_devices):
+            self._available_cameras.append(f"{index}: {name}")
+
+        generate_combobox_style(self)
         self._build_ui()
         self._poll_queue()           # start the periodic UI updater
 
@@ -138,15 +204,15 @@ class ServerLauncher(tk.Tk):
         r = 0
         # ── Camera ────────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "CAMERA", r); r += 2
-        _label(f, "Camera index", r, 0)
-        self._camera = _entry(f, srv.CAMERA_INDEX, r, 1, width=8)
-        _label(f, "FPS", r, 2)
-        self._fps = _entry(f, srv.STREAM_FPS, r, 3, width=8); r += 1
+        _label(f, "Camera", r, 0)
+        self._camera_selector = _combobox(f, self._available_cameras, r, 1); r += 1
 
         _label(f, "Width (px)", r, 0)
         self._width = _entry(f, srv.STREAM_WIDTH, r, 1, width=8)
         _label(f, "Height (px)", r, 2)
         self._height = _entry(f, srv.STREAM_HEIGHT, r, 3, width=8); r += 1
+        _label(f, "FPS", r, 0)
+        self._fps = _entry(f, srv.STREAM_FPS, r, 1, width=8); r += 1
 
         # ── Network ───────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "NETWORK", r); r += 2
@@ -204,11 +270,11 @@ class ServerLauncher(tk.Tk):
 
     def _build_cmd(self):
         cmd = [sys.executable, SERVER_SCRIPT]
-        cmd += ["--camera",  self._camera.get()]
-        cmd += ["--width",   self._width.get()]
-        cmd += ["--height",  self._height.get()]
-        cmd += ["--fps",     self._fps.get()]
-        cmd += ["--port",    self._port.get()]
+        cmd += ["--camera", self._camera_selector.get().split(':')[0]]
+        cmd += ["--width", self._width.get()]
+        cmd += ["--height", self._height.get()]
+        cmd += ["--fps", self._fps.get()]
+        cmd += ["--port", self._port.get()]
         pwd = self._pwd.get().strip()
         if pwd:
             cmd += ["--password", pwd]

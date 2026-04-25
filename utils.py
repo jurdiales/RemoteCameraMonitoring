@@ -1,7 +1,39 @@
 from dataclasses import dataclass
 
 import cv2
+from pygrabber.dshow_graph import FilterGraph
+import sounddevice as sd
 
+# ── Cameras ──────────────────────────────────────────────────────────────────
+def list_cameras():
+    graph = FilterGraph()
+    devices = graph.get_input_devices()
+    print("📷 Available Cameras:")
+    print(f"  {'Index':<6} {'Name'}")
+    print(f"  {'─'*5}  {'─'*40}")
+    for index, name in enumerate(devices):
+        print(f"  {index:<6} {name}")
+    return devices
+
+# ── Audio Devices ─────────────────────────────────────────────────────────────
+def list_audio_devices():
+    devices = sd.query_devices()
+    print("\n🎙️  Available Audio Devices:")
+    print(f"  {'Index':<6} {'I/O':<5} {'Name'}")
+    print(f"  {'─'*5}  {'─'*4}  {'─'*40}")
+    for index, device in enumerate(devices):
+        inputs  = device['max_input_channels']
+        outputs = device['max_output_channels']
+        if inputs > 0 and outputs > 0:
+            io = "I+O"
+        elif inputs > 0:
+            io = "IN"
+        else:
+            io = "OUT"
+        print(f"  {index:<6} {io:<5} {device['name']}")
+    return devices
+
+# ── OpenCV helpers ───────────────────────────────────────────────────────────────────────────────────────────────────
 @dataclass
 class CameraInfo:
     port: int
@@ -10,13 +42,12 @@ class CameraInfo:
     fps: int
 
 
-MAX_CAMERA_PORTS = 10  # upper bound to prevent an infinite scan on systems with virtual cameras
-
-def list_cameras() -> tuple:
+def list_cameras_opencv() -> tuple:
     """
     Test the cameras and returns a tuple with the available cameras 
     and the ones that are working.
     """
+    MAX_CAMERA_PORTS = 10  # upper bound to prevent an infinite scan on systems with virtual cameras
     is_working = True
     dev_port = 0
     working_cameras = []
@@ -41,8 +72,8 @@ def list_cameras() -> tuple:
     return available_cameras, working_cameras
 
 
-def select_camera() -> int | None:
-    _, working_cameras = list_cameras()
+def select_camera_opencv() -> int | None:
+    _, working_cameras = list_cameras_opencv()
     if len(working_cameras) == 0:
         print("No working cameras found.")
         return None
