@@ -11,11 +11,11 @@ import sys
 import subprocess
 import threading
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, font
 
 import server as srv
 
-# ── Colour palette (mirrors the web UI) ──────────────────────────────────────
+# ── Colour palette (mirrors the web UI) ──────────────────────────────────────────────────────────────────────────────
 BG       = "#0a0c0e"
 PANEL    = "#111417"
 BORDER   = "#1e2329"
@@ -26,6 +26,7 @@ TEXT     = "#c8cdd4"
 DIM      = "#4a5060"
 FONT     = "Helvetica"
 FONT_SZ  = 11
+TERM     = "Cascadia Code SemiBold"
 MONO     = (FONT, FONT_SZ)
 LABELS   = (FONT, 12, "bold")
 MONO_SM  = (FONT, FONT_SZ)
@@ -33,8 +34,9 @@ MONO_SM  = (FONT, FONT_SZ)
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER_SCRIPT = os.path.join(_HERE, "server.py")
 
+MAX_CONSOLE_LINES = 5
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 def _sep(parent, row, colspan=4):
     """Horizontal separator line."""
     tk.Frame(parent, bg=BORDER, height=1).grid(
@@ -81,8 +83,10 @@ def _validate_int(value):
     except (ValueError, TypeError):
         return False
 
+def list_fonts():
+    print('\n'.join(sorted(list(font.families()))))
 
-# ── Main window ───────────────────────────────────────────────────────────────
+# ── Main window ───────────────────────────────────────────────────────────────────────────────────────────────────────
 class ServerLauncher(tk.Tk):
 
     def __init__(self):
@@ -99,7 +103,7 @@ class ServerLauncher(tk.Tk):
         self._build_ui()
         self._poll_queue()           # start the periodic UI updater
 
-    # ── UI ────────────────────────────────────────────────────────────────────
+    # ── UI ────────────────────────────────────────────────────────────────────────────────────────────────────────────
     def _build_ui(self):
         main = tk.Frame(self, bg=BG)   # main has a grid of [2 x 2]
         main.pack(fill='x', pady=(0, 20))
@@ -132,7 +136,7 @@ class ServerLauncher(tk.Tk):
         f.columnconfigure(3, minsize=80)
 
         r = 0
-        # ── Camera ────────────────────────────────────────────────────────────
+        # ── Camera ────────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "CAMERA", r); r += 2
         _label(f, "Camera index", r, 0)
         self._camera = _entry(f, srv.CAMERA_INDEX, r, 1, width=8)
@@ -144,21 +148,21 @@ class ServerLauncher(tk.Tk):
         _label(f, "Height (px)", r, 2)
         self._height = _entry(f, srv.STREAM_HEIGHT, r, 3, width=8); r += 1
 
-        # ── Network ───────────────────────────────────────────────────────────
+        # ── Network ───────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "NETWORK", r); r += 2
         _label(f, "Port", r, 0)
         self._port = _entry(f, srv.FLASK_PORT, r, 1, width=8)
         _label(f, "Password", r, 2)
         self._pwd = _entry(f, "", r, 3, width=14, show="●"); r += 1
 
-        # ── Audio ─────────────────────────────────────────────────────────────
+        # ── Audio ─────────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "AUDIO", r); r += 2
         _label(f, "Device index", r, 0)
         self._audio = _entry(f, "", r, 1, width=8)
         tk.Label(f, text="(blank = system default)", bg=BG, fg=DIM, font=MONO_SM).grid(row=r,
                     column=2, columnspan=2, sticky="w", padx=(0, 8)); r += 1
 
-        # ── Features ──────────────────────────────────────────────────────────
+        # ── Features ──────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "FEATURES", r); r += 2
         self._motion = _check(f, "Enable motion detection", False, r, 0); r += 1
         self._record = _check(f, "Enable recordings", False, r, 0); r += 1
@@ -178,22 +182,20 @@ class ServerLauncher(tk.Tk):
         console_panel.grid(row=1, column=1, sticky='nswe', padx=(0, 2))
         header = tk.Frame(parent, bg=PANEL)
         header.grid(row=0, column=1, sticky='nswe')
-        tk.Label(header, text="CONSOLE OUTPUT", bg=PANEL, fg=DIM,
-                 font=MONO_SM).pack(side="left", padx=20, pady=5)
+        tk.Label(header, text="CONSOLE OUTPUT", bg=PANEL, fg=DIM, font=MONO_SM).pack(side="left", padx=20, pady=5)
         self._dot = tk.Label(header, text="●", bg=PANEL, fg=DIM, font=MONO)
         self._dot.pack(side="right", padx=20, pady=5)
 
-        self._console = scrolledtext.ScrolledText(
-            console_panel, bg="#060809", fg=TEXT, font=(FONT, 8),
-            relief="flat", bd=0, state="disabled", wrap="word", height=12,
-        )
+        self._console = scrolledtext.ScrolledText(console_panel, bg="#060809", fg=TEXT, font=(TERM, 8),
+            relief="flat", bd=0, state="disabled", wrap="word", height=12)
+        
         self._console.pack(fill="both", expand=True)
         self._console.tag_config("ok", foreground=GREEN)
         self._console.tag_config("err", foreground=RED)
         self._console.tag_config("warn", foreground=AMBER)
         self._console.tag_config("dim", foreground=DIM)
 
-    # ── Server lifecycle ──────────────────────────────────────────────────────
+    # ── Server lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────
     def _toggle(self):
         if self._proc is None:
             self._start()
@@ -252,7 +254,7 @@ class ServerLauncher(tk.Tk):
         self._btn.config(bg=GREEN, activebackground="#00c060")
         self._dot.config(fg=DIM)
 
-    # ── Output reader (background thread) ────────────────────────────────────
+    # ── Output reader (background thread) ────────────────────────────────────────────────────────────────────────────
     def _read_output(self):
         try:
             if self._proc is not None:
@@ -263,7 +265,7 @@ class ServerLauncher(tk.Tk):
         finally:
             self._q.put(None)  # sentinel: process ended
 
-    # ── Queue poller (main thread, via after()) ───────────────────────────────
+    # ── Queue poller (main thread, via after()) ───────────────────────────────────────────────────────────────────────
     def _poll_queue(self):
         try:
             while True:
@@ -285,6 +287,7 @@ class ServerLauncher(tk.Tk):
         self.after(100, self._poll_queue)
 
     def _log(self, text, tag=None):
+        # insert new log lines from server
         self._console.config(state="normal")
         if tag:
             self._console.insert("end", text, tag)
@@ -293,7 +296,13 @@ class ServerLauncher(tk.Tk):
         self._console.see("end")
         self._console.config(state="disabled")
 
-    # ── Window close ─────────────────────────────────────────────────────────
+        # delete first lines if the maximum has been reached
+        cur_lines = int(self._console.index('end-1c').split('.')[0])
+        to_delete = cur_lines - MAX_CONSOLE_LINES
+        if to_delete > 0:
+            self._console.delete('1.0', f'{to_delete}.0')
+
+    # ── Window close ─────────────────────────────────────────────────────────────────────────────────────────────────
     def _on_close(self):
         if self._proc:
             self._proc.terminate()
