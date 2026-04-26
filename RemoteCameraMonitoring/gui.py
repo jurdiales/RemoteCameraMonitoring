@@ -11,7 +11,7 @@ import sys
 import subprocess
 import threading
 import tkinter as tk
-from tkinter import scrolledtext, font, ttk
+from tkinter import scrolledtext, font, ttk, messagebox
 from pygrabber.dshow_graph import FilterGraph
 
 import server as srv
@@ -26,16 +26,17 @@ AMBER    = "#ffa726"
 TEXT     = "#c8cdd4"
 DIM      = "#4a5060"
 FONT     = "Helvetica"
-FONT_SZ  = 11
+FONT_SZ  = 10
 TERM     = "Cascadia Code SemiBold"
 MONO     = (FONT, FONT_SZ)
-LABELS   = (FONT, 12, "bold")
+LABELS   = (FONT, 11, "bold")
 MONO_SM  = (FONT, FONT_SZ)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER_SCRIPT = os.path.join(_HERE, "server.py")
 
 MAX_CONSOLE_LINES = 300
+SYSTEM_DEFAULT = "System default"
 
 # ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 # ── Helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -169,10 +170,11 @@ class ServerLauncher(tk.Tk):
         for index, name in enumerate(camera_devices):
             self._available_cameras.append(f"{index}: {name}")
         # get available audio sources
-        self._available_audio_sources = []
+        self._available_audio_sources = [SYSTEM_DEFAULT]
         audio_sources = graph.get_audio_devices()
         for index, name in enumerate(audio_sources):
             self._available_audio_sources.append(f"{index}: {name}")
+        self._available_audio_sources.append("No audio")
 
         generate_combobox_style(self)
         self._build_ui()
@@ -276,9 +278,37 @@ class ServerLauncher(tk.Tk):
             self._stop()
 
     def _build_cmd(self):
+        # check camera device selected
+        if len(self._camera_selector.get()) == 0:
+            messagebox.showerror("Error", "Camera device not selected. Please select one, if available.")
+            return None
+        else:
+            camera_index = self._camera_selector.get().split(':')[0]
+            try:
+                int(camera_index)
+            except:
+                messagebox.showerror("Error", "Camera device selected not valid.")
+                return None
+        
+        # check audio device selected
+        audio = self._audio_selector.get()
+        if (len(audio) == 0) or (audio == "No audio"):
+            self._log("No audio device selected, stream audio not available\n", "warn")
+            audio_index = "-1"
+        elif audio == SYSTEM_DEFAULT:
+            audio_index = None
+        else:
+            audio_index = self._audio_selector.get().split(':')[0]
+            try:
+                int(audio_index)
+            except:
+                messagebox.showerror("Error", "Audio device selected not valid.")
+                return None
+
         cmd = [sys.executable, SERVER_SCRIPT]
-        cmd += ["--camera", self._camera_selector.get().split(':')[0]]
-        cmd += ["--audio-device", self._audio_selector.get().split(':')[0]]
+        cmd += ["--camera", camera_index]
+        if audio_index is not None:
+            cmd += ["--audio-device", audio_index]
         cmd += ["--width", self._width.get().strip()]
         cmd += ["--height", self._height.get().strip()]
         cmd += ["--fps", self._fps.get().strip()]
@@ -294,6 +324,8 @@ class ServerLauncher(tk.Tk):
 
     def _start(self):
         cmd = self._build_cmd()
+        if cmd is None:
+            return
         # Log the command with the password masked
         display = [("●●●●" if i > 0 and cmd[i - 1] == "--password" else c)
                    for i, c in enumerate(cmd)]
