@@ -481,6 +481,9 @@
     </footer>
     
     <script>
+        // ── Context ─────────────────────────────────
+        let audio_enabled = JSON.parse('{{ audio_enabled | tojson }}');
+
         // ── Reloj ───────────────────────────────────
         function updateClock() {
             const now = new Date();
@@ -629,28 +632,43 @@
         });
 
         // ── Mute toggle ──────────────────────────────
-        const muteBtn   = document.getElementById('mute-btn');
-        const dotAudio  = document.getElementById('dot-audio');
-        const lblAudio  = document.getElementById('lbl-audio');
-        let   isMuted   = false;
+        const muteBtn = document.getElementById('mute-btn');
+        const dotAudio = document.getElementById('dot-audio');
+        const lblAudio = document.getElementById('lbl-audio');
+        let isMuted = false;
 
+        function set_muted() {
+            muteBtn.textContent = '🔇';
+            muteBtn.classList.add('muted');
+            dotAudio.classList.remove('ok');
+            dotAudio.style.background = 'var(--text-dim)';
+            dotAudio.style.boxShadow = 'none';
+            lblAudio.textContent = 'Audio muted';
+        }
+
+        function set_unmuted() {
+            muteBtn.textContent = '🔊';
+            muteBtn.classList.remove('muted');
+            dotAudio.classList.add('ok');
+            dotAudio.style.background = '';
+            dotAudio.style.boxShadow = '';
+            lblAudio.textContent = 'Audio active';
+        }
+
+        if (audio_enabled == "False") {
+            set_muted();
+            lblAudio.textContent = 'No audio';
+            isMuted = true
+        }
+        
         muteBtn.addEventListener('click', () => {
+            if (audio_enabled == "False") return;
             isMuted = !isMuted;
             video.muted = isMuted;
             if (isMuted) {
-                muteBtn.textContent = '🔇';
-                muteBtn.classList.add('muted');
-                dotAudio.classList.remove('ok');
-                dotAudio.style.background = 'var(--text-dim)';
-                dotAudio.style.boxShadow  = 'none';
-                lblAudio.textContent = 'Audio muted';
+                set_muted();
             } else {
-                muteBtn.textContent = '🔊';
-                muteBtn.classList.remove('muted');
-                dotAudio.style.background = '';
-                dotAudio.style.boxShadow  = '';
-                dotAudio.classList.add('ok');
-                lblAudio.textContent = 'Audio active';
+                set_unmuted();
             }
         });
         

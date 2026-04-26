@@ -257,7 +257,8 @@ class MicrophoneAudioTrack(AudioStreamTrack):
     def __init__(self):
         super().__init__()
         self._queue: queue.Queue = queue.Queue(maxsize=50)
-        self._pts   = 0
+        self._pts = 0
+        sd.default.device = AUDIO_DEVICE_INDEX
 
         # Open the input stream in a daemon thread so it doesn't block the
         # asyncio event loop.  The callback pushes raw PCM into _queue.
@@ -336,7 +337,8 @@ async def _handle_offer(data):
             _pcs.discard(pc)
 
     pc.addTrack(CameraVideoTrack())
-    pc.addTrack(MicrophoneAudioTrack())
+    if (AUDIO_DEVICE_INDEX is None) or (AUDIO_DEVICE_INDEX >= 0):
+        pc.addTrack(MicrophoneAudioTrack())
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
@@ -420,7 +422,9 @@ def logout():
 @require_auth
 def index():
     from_login = session.pop("from_login", False)
-    return render_template("index.html", auth_enabled=bool(LOGIN_PASSWORD), from_login=from_login)
+    audio_enabled = "False" if AUDIO_DEVICE_INDEX is not None and AUDIO_DEVICE_INDEX == -1 else "True"
+    return render_template("index.html", auth_enabled=bool(LOGIN_PASSWORD), from_login=from_login,
+            audio_enabled=audio_enabled)
 
 
 @app.route("/stream")
