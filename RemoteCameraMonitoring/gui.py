@@ -35,9 +35,11 @@ MONO_SM  = (FONT, FONT_SZ)
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER_SCRIPT = os.path.join(_HERE, "server.py")
 
-MAX_CONSOLE_LINES = 5
+MAX_CONSOLE_LINES = 300
 
-# ── Helpers ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+# ── Helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 def _sep(parent, row, colspan=4):
     """Horizontal separator line."""
     tk.Frame(parent, bg=BORDER, height=1).grid(
@@ -61,7 +63,7 @@ def _entry(parent, default, row, col, width=8, show='', validate='none', validat
         parent, textvariable=var, width=width, show=show, justify=tk.RIGHT,
         bg=PANEL, fg=TEXT, insertbackground=TEXT, relief="flat", font=MONO,
         highlightthickness=1, highlightbackground=BORDER, highlightcolor=GREEN,
-        validate=validate, validatecommand=validate_cmd,
+        validate=validate, validatecommand=validate_cmd, # pyright: ignore[reportArgumentType]
     )
     e.grid(row=row, column=col, sticky="w", pady=3, padx=20)
     return var
@@ -144,9 +146,9 @@ def generate_combobox_style(root):
         darkcolor=[('readonly', PANEL), ('focus', PANEL)],
     )
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── Main window ───────────────────────────────────────────────────────────────────────────────────────────────────────
-# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+# ── Main window ──────────────────────────────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 class ServerLauncher(tk.Tk):
 
     def __init__(self):
@@ -176,7 +178,7 @@ class ServerLauncher(tk.Tk):
         self._build_ui()
         self._poll_queue()           # start the periodic UI updater
 
-    # ── UI ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    # ── UI ───────────────────────────────────────────────────────────────────────────────────────────────────────────
     def _build_ui(self):
         main = tk.Frame(self, bg=BG)   # main has a grid of [2 x 2]
         main.pack(fill='x', pady=(0, 20))
@@ -209,7 +211,7 @@ class ServerLauncher(tk.Tk):
         f.columnconfigure(3, minsize=80)
 
         r = 0
-        # ── Camera ────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Camera ───────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "CAMERA", r); r += 2
         _label(f, "Camera", r, 0)
         self._camera_selector = _combobox(f, self._available_cameras, r, 1); r += 1
@@ -221,19 +223,19 @@ class ServerLauncher(tk.Tk):
         _label(f, "FPS", r, 0)
         self._fps = _entry(f, srv.STREAM_FPS, r, 1, width=8); r += 1
 
-        # ── Network ───────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Network ──────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "NETWORK", r); r += 2
         _label(f, "Port", r, 0)
         self._port = _entry(f, srv.FLASK_PORT, r, 1, width=8)
         _label(f, "Password", r, 2)
         self._pwd = _entry(f, "", r, 3, width=14, show="●"); r += 1
 
-        # ── Audio ─────────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Audio ────────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "AUDIO", r); r += 2
         _label(f, "Device", r, 0)
         self._audio_selector = _combobox(f, self._available_audio_sources, r, 1); r += 1
 
-        # ── Features ──────────────────────────────────────────────────────────────────────────────────────────────────
+        # ── Features ─────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "FEATURES", r); r += 2
         self._motion = _check(f, "Enable motion detection", False, r, 0); r += 1
         self._record = _check(f, "Enable recordings", False, r, 0); r += 1
@@ -266,7 +268,7 @@ class ServerLauncher(tk.Tk):
         self._console.tag_config("warn", foreground=AMBER)
         self._console.tag_config("dim", foreground=DIM)
 
-    # ── Server lifecycle ──────────────────────────────────────────────────────────────────────────────────────────────
+    # ── Server lifecycle ─────────────────────────────────────────────────────────────────────────────────────────────
     def _toggle(self):
         if self._proc is None:
             self._start()
@@ -336,18 +338,19 @@ class ServerLauncher(tk.Tk):
         self._btn.config(bg=GREEN, activebackground="#00c060")
         self._dot.config(fg=DIM)
 
-    # ── Output reader (background thread) ────────────────────────────────────────────────────────────────────────────
+    # ── Output reader (background thread) ───────────────────────────────────────────────────────────────────────────
     def _read_output(self):
         try:
             if self._proc is not None:
-                for line in self._proc.stdout:
-                    self._q.put(line)
+                if self._proc.stdout is not None:
+                    for line in self._proc.stdout:
+                        self._q.put(line)
         except Exception:
             pass
         finally:
             self._q.put(None)  # sentinel: process ended
 
-    # ── Queue poller (main thread, via after()) ───────────────────────────────────────────────────────────────────────
+    # ── Queue poller (main thread, via after()) ──────────────────────────────────────────────────────────────────────
     def _poll_queue(self):
         try:
             while True:
@@ -382,16 +385,18 @@ class ServerLauncher(tk.Tk):
         cur_lines = int(self._console.index('end-1c').split('.')[0])
         to_delete = cur_lines - MAX_CONSOLE_LINES
         if to_delete > 0:
+            self._console.config(state="normal")
             self._console.delete('1.0', f'{to_delete}.0')
+            self._console.config(state="disabled")
 
     # ── Window close ─────────────────────────────────────────────────────────────────────────────────────────────────
     def _on_close(self):
         self._stop()
         self.destroy()
 
-# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── Entry Point ───────────────────────────────────────────────────────────────────────────────────────────────────────
-# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+# ── Entry Point ──────────────────────────────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 def main():
     print("=" * 80)

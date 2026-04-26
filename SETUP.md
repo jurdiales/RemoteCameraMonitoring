@@ -172,15 +172,15 @@ Console arguments:
 | -------------------- | -------------------- |
 | -h, --help | show help message and exit |
 | -s, --setup | Run camera setup utility |
-| -c, --camera CAMERA | Camera index |
-| --width WIDTH | Stream width in pixels |
-| --height HEIGHT | Stream height in pixels |
-| --fps FPS | Stream frames per second |
+| -c, --camera | Camera index |
+| --width | Stream width in pixels |
+| --height | Stream height in pixels |
+| --fps | Stream frames per second |
 | -a, --audio-device | Audio input device index (default: system default) |
 | -r, --record | Enable recordings |
 | -m, --motion | Enable motion detection |
-| -p, --port PORT | Flask server port |
-| --password PWD | Password to protect the web interface (leave empty- to disable) |
+| -p, --port | Flask server port |
+| --password | Password to protect the web interface (leave empty- to disable) |
 
 ---
 

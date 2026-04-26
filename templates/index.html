@@ -36,7 +36,6 @@
         header {
             display: flex;
             align-items: center;
-            justify-content: space-between;
             padding: 14px 28px;
             border-bottom: 1px solid var(--border);
             background: var(--panel);
@@ -56,15 +55,19 @@
             line-height: 1.7;
         }
         #clock { color: var(--text); }
+        .push {
+            margin-left: auto;
+        }
         .logout-btn {
             font-family: var(--mono);
-            font-size: .65rem;
+            font-size: .75rem;
             letter-spacing: .1em;
             color: var(--text-dim);
             text-decoration: none;
             border: 1px solid var(--border);
             border-radius: 4px;
             padding: 5px 12px;
+            margin: 0px 20px;
             transition: color .2s, border-color .2s;
         }
         .logout-btn:hover { color: var(--red); border-color: var(--red); }
@@ -374,6 +377,7 @@
     
     <header>
         <div class="logo">RemoteCamera <span>// HOME SURVEILLANCE</span></div>
+        <div class="push"></div>
         {% if auth_enabled %}<a class="logout-btn" href="/logout">LOGOUT</a>{% endif %}
         <div class="header-meta">
             <div id="clock">--:--:--</div>
@@ -535,7 +539,7 @@
                 var isPlaying = (hasPlayed) || (video.currentTime > 0 && !video.paused && !video.ended && video.readyState > video.HAVE_CURRENT_DATA);
                 if (!isPlaying) {
                     video.play().catch((err) => {
-                        if (error.name === "NotAllowedError") {
+                        if (err.name === "NotAllowedError") {
                             document.getElementById('play-overlay').classList.add('visible');
                         } else {
                             console.warn('Play video failed', err);
@@ -650,13 +654,13 @@
             }
         });
         
-        // ── Polling de estado ────────────────────────
+        // ── State polling ────────────────────────
         async function fetchStatus() {
             try {
                 const r = await fetch('/api/status');
                 const d = await r.json();
                 
-                // Movimiento
+                // Movement
                 const flash  = document.getElementById('motion-flash');
                 const dotM   = document.getElementById('dot-motion');
                 const lblM   = document.getElementById('lbl-motion');
@@ -672,7 +676,7 @@
                     lblM.style.color = '';
                 }
                 
-                // Grabación
+                // Recording
                 const dotR = document.getElementById('dot-rec');
                 const lblR = document.getElementById('lbl-rec');
                 if (d.recording) {
@@ -691,7 +695,7 @@
                 document.getElementById('uptime-val').textContent  = d.uptime;
                 document.getElementById('port-val').textContent  = d.port;
                 
-                // Eventos
+                // Events
                 if (d.events && d.events.length > 0) {
                     const list = document.getElementById('event-list');
                     list.innerHTML = d.events.map(e =>
@@ -701,7 +705,7 @@
                         </div>`
                     ).join('');
                 }
-            } catch(e) { /* servidor no disponible */ }
+            } catch(e) { /* server not available */ }
         }
 
         async function fetchRecordings() {
@@ -716,7 +720,7 @@
                     `<div class="rec-item" title="${f.name}">📹 ${f.name} · ${f.size}</div>`
                     ).join('');
                 }
-            } catch(e) {}
+            } catch(e) { /* server not available */ }
         }
         
         setInterval(fetchStatus, 1500);

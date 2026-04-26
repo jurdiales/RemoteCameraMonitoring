@@ -56,7 +56,7 @@ RECORDINGS_DIR      = "../recordings"   # name of the folder to store recordings
 MAX_RECORDINGS      = 50                # maximum number of recordings to store
 
 # Authentication
-LOGIN_PASSWORD      = ""            # password to access the web interface; leave empty to disable auth
+LOGIN_PASSWORD      = ""                # password to access the web interface; leave empty to disable auth
 # ─────────────────────────────────────────────
 
 app = Flask(__name__, template_folder="../templates")

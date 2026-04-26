@@ -4,8 +4,8 @@ import cv2
 from pygrabber.dshow_graph import FilterGraph
 import sounddevice as sd
 
-# ── Cameras ──────────────────────────────────────────────────────────────────
-def list_cameras():
+# ── Cameras ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+def list_cameras() -> list[str]:
     graph = FilterGraph()
     devices = graph.get_input_devices()
     print("📷 Available Cameras:")
@@ -15,7 +15,7 @@ def list_cameras():
         print(f"  {index:<6} {name}")
     return devices
 
-# ── Audio Devices ─────────────────────────────────────────────────────────────
+# ── Audio Devices ────────────────────────────────────────────────────────────────────────────────────────────────────
 def list_audio_devices():
     devices = sd.query_devices()
     print("\n🎙️  Available Audio Devices:")
