@@ -15,6 +15,14 @@ from tkinter import scrolledtext, font, ttk, messagebox
 from pygrabber.dshow_graph import FilterGraph
 import webbrowser
 
+import platform
+PLATFORM = platform.system()
+if PLATFORM == 'Windows':
+    # set AppID on Windows
+    import ctypes
+    myappid = 'mycompany.remotecameramonitoring.subproduct.version'
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+
 import server as srv
 
 # ── Colour palette (mirrors the web UI) ──────────────────────────────────────────────────────────────────────────────
@@ -158,6 +166,12 @@ class ServerLauncher(tk.Tk):
         self.configure(bg=BG)
         self.resizable(True, False)
         self.minsize(800, 400)
+        self._small_icon = tk.PhotoImage(file=os.path.join(_HERE, os.pardir, "resources", "icon16.png"))
+        if PLATFORM == 'Windows':
+            self._big_icon = tk.PhotoImage(file=os.path.join(_HERE, os.pardir, "resources", "icon32.png"))
+        else:
+            self._big_icon = tk.PhotoImage(file=os.path.join(_HERE, os.pardir, "resources", "icon64.png"))
+        self.iconphoto(False, self._small_icon, self._big_icon)
 
         self._proc   = None          # subprocess.Popen handle
         self._q      = queue.Queue() # output lines from the server process
