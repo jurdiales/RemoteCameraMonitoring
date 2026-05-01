@@ -1,19 +1,99 @@
+import platform
 from dataclasses import dataclass
 
 import cv2
-from pygrabber.dshow_graph import FilterGraph
 import sounddevice as sd
+
+_OS = platform.system()
 
 # ── Cameras ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 def list_cameras() -> list[str]:
-    graph = FilterGraph()
-    devices = graph.get_input_devices()
+    """Return human-readable camera names where possible.
+
+    On Windows, pygrabber can return friendly DirectShow names, but it is not
+    available on Linux or macOS.  We fall back to a plain OpenCV index scan on
+    all platforms so the function works everywhere.
+    """
+    if _OS == "Windows":
+        try:
+            from pygrabber.dshow_graph import FilterGraph  # type: ignore[import]
+            devices = FilterGraph().get_input_devices()
+            print("📷 Available Cameras:")
+            print(f"  {'Index':<6} {'Name'}")
+            print(f"  {'─'*5}  {'─'*40}")
+            for index, name in enumerate(devices):
+                print(f"  {index:<6} {name}")
+            return devices
+        except Exception:
+            pass  # fall through to the generic scan
+
+    # Generic: scan indices with OpenCV
+    names: list[str] = []
+    for idx in range(10):
+        cap = cv2.VideoCapture(idx)
+        if not cap.isOpened():
+            cap.release()
+            break
+        names.append(f"Camera {idx}")
+        cap.release()
+
     print("📷 Available Cameras:")
     print(f"  {'Index':<6} {'Name'}")
     print(f"  {'─'*5}  {'─'*40}")
-    for index, name in enumerate(devices):
+    for index, name in enumerate(names):
         print(f"  {index:<6} {name}")
-    return devices
+    return names
+
+
+def list_camera_names() -> list[str]:
+    """Return a list of camera display names (friendly on Windows, generic elsewhere)."""
+    if _OS == "Windows":
+        try:
+            from pygrabber.dshow_graph import FilterGraph  # type: ignore[import]
+            return FilterGraph().get_input_devices()
+        except Exception:
+            pass
+
+    names: list[str] = []
+    for idx in range(10):
+        cap = cv2.VideoCapture(idx)
+        if not cap.isOpened():
+            cap.release()
+            break
+        names.append(f"Camera {idx}")
+        cap.release()
+    return names
+
+
+def list_audio_input_names() -> list[str]:
+    """Return a list of audio *input* device display names (cross-platform via sounddevice).
+
+    On Windows, results are filtered to the WASAPI host API only, which exposes
+    one entry per physical device — matching the clean list that DirectShow gave.
+    On Linux and macOS, all input devices are returned (PortAudio typically only
+    has one host API on those platforms anyway).
+    """
+    # Find the WASAPI host API index (Windows only; None on other platforms)
+    wasapi_index = None
+    if _OS == "Windows":
+        try:
+            for i, api in enumerate(sd.query_hostapis()):
+                if "wasapi" in api["name"].lower():  # type: ignore[index]
+                    wasapi_index = i
+                    break
+        except Exception:
+            pass  # fall through: show all devices
+
+    result: list[str] = []
+    for idx, device in enumerate(sd.query_devices()):
+        if device["max_input_channels"] <= 0:  # type: ignore[index]
+            continue
+        # On Windows, skip non-WASAPI devices to avoid duplicates and virtual devices
+        if wasapi_index is not None and device["hostapi"] != wasapi_index:  # type: ignore[index]
+            continue
+        result.append(f"{idx}: {device['name']}")  # type: ignore[index]
+    return result
+
 
 # ── Audio Devices ────────────────────────────────────────────────────────────────────────────────────────────────────
 def list_audio_devices():

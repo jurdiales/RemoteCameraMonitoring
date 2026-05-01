@@ -18,6 +18,7 @@ import asyncio
 import queue
 import fractions
 import secrets
+import platform
 from functools import wraps
 
 from flask import Flask, Response, jsonify, render_template, request, session, redirect
@@ -76,20 +77,33 @@ _stats            = {"total_events": 0, "start_time": datetime.datetime.now()}
 # ══════════════════════════════════════════════════════════════
 #  MAIN THREAD
 # ══════════════════════════════════════════════════════════════
+def _open_camera(index: int) -> cv2.VideoCapture:
+    """Open a camera with the best available backend for the current OS."""
+    _os = platform.system()
+    if _os == "Windows":
+        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, 0]
+    elif _os == "Linux":
+        backends = [cv2.CAP_V4L2, 0]
+    else:  # macOS and others
+        backends = [cv2.CAP_AVFOUNDATION, 0]
+
+    for backend in backends:
+        cap = cv2.VideoCapture(index, backend) if backend != 0 else cv2.VideoCapture(index)
+        if cap.isOpened():
+            return cap
+        cap.release()
+
+    # Last-resort fallback
+    return cv2.VideoCapture(index)
+
+
 def camera_worker():
     global _current_frame, _motion_active, _is_recording, _last_motion_ts
 
-    # use CAP_DSHOW to improve Windows compatibility
-    cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
+    cap = _open_camera(CAMERA_INDEX)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, STREAM_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, STREAM_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, STREAM_FPS)
-
-    if not cap.isOpened():
-        # Fallback without CAP_DSHOW
-        cap = cv2.VideoCapture(CAMERA_INDEX)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, STREAM_WIDTH)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, STREAM_HEIGHT)
 
     prev_gray = None
     video_writer = None
@@ -154,10 +168,16 @@ def camera_worker():
             if video_writer is None:
                 _cleanup_old_recordings()
                 fname = os.path.join(RECORDINGS_DIR, f"mov_{now.strftime('%Y%m%d_%H%M%S')}.mp4")
-                fourcc = cv2.VideoWriter.fourcc('H','2','6','4')
+                # 'avc1' (H.264) works on Windows/macOS; fall back to 'mp4v' on Linux
+                # if the encoder is unavailable.
+                fourcc = cv2.VideoWriter.fourcc(*'avc1')
                 actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 video_writer = cv2.VideoWriter(fname, fourcc, STREAM_FPS, (actual_w, actual_h))
+                if not video_writer.isOpened():
+                    # avc1 unavailable — fall back to MPEG-4 Part 2
+                    fourcc = cv2.VideoWriter.fourcc(*'mp4v')
+                    video_writer = cv2.VideoWriter(fname, fourcc, STREAM_FPS, (actual_w, actual_h))
             video_writer.write(frame)
         else:
             if video_writer is not None:

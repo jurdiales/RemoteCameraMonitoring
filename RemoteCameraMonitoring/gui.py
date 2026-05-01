@@ -12,7 +12,7 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import scrolledtext, font, ttk, messagebox
-from pygrabber.dshow_graph import FilterGraph
+from utils import list_camera_names, list_audio_input_names
 import webbrowser
 
 import platform
@@ -36,7 +36,13 @@ TEXT     = "#c8cdd4"
 DIM      = "#4a5060"
 FONT     = "Helvetica"
 FONT_SZ  = 10
-TERM     = "Cascadia Code SemiBold"
+# Monospace font: prefer Cascadia Code on Windows, fall back gracefully
+if PLATFORM == "Windows":
+    TERM = "Cascadia Code SemiBold"
+elif PLATFORM == "Darwin":
+    TERM = "Menlo"
+else:  # Linux / others
+    TERM = "DejaVu Sans Mono"
 MONO     = (FONT, FONT_SZ)
 LABELS   = (FONT, 11, "bold")
 MONO_SM  = (FONT, FONT_SZ)
@@ -160,7 +166,7 @@ def list_fonts():
 # ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 class ServerLauncher(tk.Tk):
 
-    def __init__(self):
+    def __init__(self, camera_list, audio_input_list):
         super().__init__()
         self.title("RemoteCamera — Launcher")
         self.configure(bg=BG)
@@ -177,20 +183,9 @@ class ServerLauncher(tk.Tk):
         self._q      = queue.Queue() # output lines from the server process
         self._reader = None          # background reader thread
 
-        graph = FilterGraph()
-        # get available cameras
-        self._available_cameras = []
-        camera_devices = graph.get_input_devices()
-        for index, name in enumerate(camera_devices):
-            self._available_cameras.append(f"{index}: {name}")
-        # get available audio sources
-        self._available_audio_sources = [SYSTEM_DEFAULT]
-        audio_sources = graph.get_audio_devices()
-        for index, name in enumerate(audio_sources):
-            self._available_audio_sources.append(f"{index}: {name}")
-        self._available_audio_sources.append("No audio")
-
         _generate_combobox_style(self)
+        self._available_cameras = camera_list
+        self._available_audio_sources = audio_input_list
         self._build_ui()
         self._poll_queue()           # start the periodic UI updater
     
@@ -462,7 +457,15 @@ def main():
     print("Server Remote Access: http://<public-ip>:port")
     print("=" * 80)
 
-    app = ServerLauncher()
+    # Enumerate cameras — friendly names on Windows, index-based elsewhere
+    camera_names = list_camera_names()
+    available_cameras = [f"{index}: {name}" for index, name in enumerate(camera_names)]
+    # Enumerate audio input devices via sounddevice (cross-platform)
+    available_audio_sources = [SYSTEM_DEFAULT]
+    available_audio_sources += list_audio_input_names()
+    available_audio_sources.append("No audio")
+
+    app = ServerLauncher(available_cameras, available_audio_sources)
     app.protocol("WM_DELETE_WINDOW", app._on_close)
     app.mainloop()
 
