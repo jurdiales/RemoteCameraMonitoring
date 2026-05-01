@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23111417'/%3E%3Crect x='3' y='10' width='20' height='14' rx='2.5' fill='%2300e676'/%3E%3Cpolygon points='13,7 17,10 9,10' fill='%2300e676'/%3E%3Ccircle cx='13' cy='17' r='4.5' fill='%23111417'/%3E%3Ccircle cx='13' cy='17' r='2.5' fill='%230a0c0e'/%3E%3Crect x='24' y='13' width='5' height='8' rx='2' fill='%2300e676'/%3E%3C/svg%3E">
     <title>RemoteCamera — Surveillance</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -36,7 +36,11 @@
         header {
             display: flex;
             align-items: center;
-            padding: 14px 28px;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            padding: 12px 20px;
+            padding-left: max(20px, env(safe-area-inset-left));
+            padding-right: max(20px, env(safe-area-inset-right));
             border-bottom: 1px solid var(--border);
             background: var(--panel);
         }
@@ -353,23 +357,80 @@
         
         /* ── FOOTER ── */
         footer {
-            padding: 8px 28px;
+            padding: 8px 20px;
+            padding-left: max(20px, env(safe-area-inset-left));
+            padding-right: max(20px, env(safe-area-inset-right));
+            padding-bottom: max(8px, env(safe-area-inset-bottom));
             border-top: 1px solid var(--border);
             background: var(--panel);
             font-family: var(--mono);
             font-size: .65rem;
             color: var(--text-dim);
             display: flex;
+            flex-wrap: wrap;
+            gap: 4px 16px;
             justify-content: space-between;
         }
         #port-val { color: var(--text-dim); }
         #uptime-val { color: var(--text); }
-        
-        /* ── RESPONSIVE ── */
-        @media (max-width: 768px) {
-            main { grid-template-columns: 1fr; grid-template-rows: auto auto; }
-            .sidebar { flex-direction: row; flex-wrap: wrap; overflow-x: auto; }
-            .panel-block { min-width: 200px; flex: 1; }
+
+        /* ── RESPONSIVE — Tablet (≤ 900 px) ── */
+        @media (max-width: 900px) {
+            main {
+                /* Video on top, sidebar below — no horizontal scroll */
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto;
+            }
+
+            /* Feed takes natural video height instead of stretching to fill */
+            .feed-wrap {
+                min-height: 220px;
+                max-height: 55vw;   /* keeps 16:9 ish on portrait tablets */
+            }
+
+            /* Sidebar: horizontal pill-row of cards that wraps to new lines */
+            .sidebar {
+                flex-direction: row;
+                flex-wrap: wrap;
+                gap: 1px;
+            }
+            .panel-block {
+                flex: 1 1 200px;    /* grow & shrink, but never narrower than 200 px */
+                border-bottom: none;
+                border-right: 1px solid var(--border);
+            }
+            .panel-block:last-child { border-right: none; }
+        }
+
+        /* ── RESPONSIVE — Phone (≤ 520 px) ── */
+        @media (max-width: 520px) {
+            /* Header: stack logo left, push clock to next line */
+            .header-meta { font-size: .68rem; }
+            .logout-btn  { margin: 0 8px; padding: 4px 10px; }
+
+            /* Feed: let the video use as much vertical space as possible */
+            .feed-wrap { max-height: 60vw; min-height: 180px; }
+
+            /* Bigger tap targets for overlay buttons */
+            #mute-btn,
+            #fullscreen-btn {
+                width: 52px;
+                height: 52px;
+                font-size: 1.5rem;
+            }
+            /* Nudge hint repositioned so it doesn't overlap mute button */
+            #unmute-nudge { bottom: 82px; }
+
+            /* Each sidebar card takes the full width */
+            .panel-block { flex: 1 1 100%; border-right: none;
+                           border-bottom: 1px solid var(--border); }
+
+            /* Stat grid — 2 cols is fine on phone, just tighten gaps */
+            .stat-grid { gap: 8px; }
+
+            /* Slightly taller event / recordings scrollable areas */
+            .event-list { max-height: 120px; }
+            .rec-list   { max-height: 100px; }
         }
     </style>
 </head>
