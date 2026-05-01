@@ -13,6 +13,7 @@ import threading
 import tkinter as tk
 from tkinter import scrolledtext, font, ttk, messagebox
 from pygrabber.dshow_graph import FilterGraph
+import webbrowser
 
 import server as srv
 
@@ -118,11 +119,7 @@ def _validate_int(value):
     except (ValueError, TypeError):
         return False
 
-def list_fonts():
-    print('\n'.join(sorted(list(font.families()))))
-
-
-def generate_combobox_style(root):
+def _generate_combobox_style(root):
     combostyle = ttk.Style(root)
     combostyle.theme_use('clam')
     combostyle.configure('CBB.TCombobox',
@@ -146,6 +143,9 @@ def generate_combobox_style(root):
         lightcolor=[('readonly', PANEL), ('focus', PANEL)],
         darkcolor=[('readonly', PANEL), ('focus', PANEL)],
     )
+
+def list_fonts():
+    print('\n'.join(sorted(list(font.families()))))
 
 # ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 # ── Main window ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -176,10 +176,13 @@ class ServerLauncher(tk.Tk):
             self._available_audio_sources.append(f"{index}: {name}")
         self._available_audio_sources.append("No audio")
 
-        generate_combobox_style(self)
+        _generate_combobox_style(self)
         self._build_ui()
         self._poll_queue()           # start the periodic UI updater
-
+    
+    def _open_web_interface(self):
+        webbrowser.open(f"http://localhost:{self._port.get()}")
+    
     # ── UI ───────────────────────────────────────────────────────────────────────────────────────────────────────────
     def _build_ui(self):
         main = tk.Frame(self, bg=BG)   # main has a grid of [2 x 2]
@@ -245,6 +248,12 @@ class ServerLauncher(tk.Tk):
     def _build_controls(self, parent):
         frame = tk.Frame(parent, bg=BG)
         frame.pack(fill="x", padx=20, pady=12)
+
+        self._btn_browser_image = tk.PhotoImage(file=os.path.join(_HERE, os.pardir, "resources", "web.png")).subsample(2)
+        self._btn_browser = tk.Button(frame, relief="flat", font=(FONT, 10, "bold"), command=self._open_web_interface,
+                                      bg=GREEN, fg=BG, activebackground="#00c060", activeforeground=BG,
+                                      padx=9, pady=9, cursor="hand2", bd=0, image=self._btn_browser_image)
+        self._btn_browser.pack(side='right', padx=5)
 
         self._btn_var = tk.StringVar(value="▶   START SERVER")
         self._btn = tk.Button(frame, textvariable=self._btn_var, command=self._toggle,
