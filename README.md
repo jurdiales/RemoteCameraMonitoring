@@ -13,8 +13,7 @@ Remote camera broadcast system using Python, WebRTC, and Flask.
 
 ## Requirements
 
-- Python 3.9+
-- Windows (for the device discovery via `pygrabber` and the GUI)
+- Python 3.10+
 - A connected webcam and an audio input device.
 
 ## Quick Start
@@ -35,6 +34,29 @@ Remote camera broadcast system using Python, WebRTC, and Flask.
    - Adjust the **Resolution** and **FPS** if necessary.
    - Click the green **▶ START SERVER** button.
    - Open your browser and go to `http://localhost:8090` (or the port you configured).
+
+## Package Install
+
+1. **Development** (editable install — changes take effect immediately):
+   ```bash
+   pip install -e .
+   ```
+
+2. **Regular install:**
+   ```bash
+   pip install -e .
+   ```
+
+3. **Run GUI launcher:**
+   ```bash
+   python -m RemoteCameraMonitoring
+   ```
+
+4. **Run headless server directly:**
+   ```bash
+   python -m RemoteCameraMonitoring.server --camera 0 --port 8090
+   ```
+   *(Note: all CLI flags available)*
 
 ## Documentation
 

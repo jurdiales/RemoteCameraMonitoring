@@ -19,6 +19,7 @@ import queue
 import fractions
 import secrets
 import platform
+import importlib.resources as pkg_resources
 from functools import wraps
 
 from flask import Flask, Response, jsonify, render_template, request, session, redirect
@@ -26,7 +27,10 @@ import numpy as np
 from aiortc import RTCIceServer, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, AudioStreamTrack, RTCConfiguration
 import av
 import sounddevice as sd
-from utils import list_cameras_opencv
+try:
+    from .utils import list_cameras_opencv   # installed as package
+except ImportError:
+    from utils import list_cameras_opencv    # running as plain script
 
 # ─────────────────────────────────────────────
 #  SETTINGS
@@ -53,14 +57,19 @@ DILATION_KERNEL     = np.ones((5, 5), np.uint8)    # dilation to connect motion 
 
 # Video recording
 ENABLE_RECORDINGS   = False             # enable recording
-RECORDINGS_DIR      = "../recordings"   # name of the folder to store recordings
+RECORDINGS_DIR      = os.path.join(os.getcwd(), "recordings")  # stored relative to CWD at launch
 MAX_RECORDINGS      = 50                # maximum number of recordings to store
 
 # Authentication
 LOGIN_PASSWORD      = ""                # password to access the web interface; leave empty to disable auth
 # ─────────────────────────────────────────────
 
-app = Flask(__name__, template_folder="../templates")
+# Resolve template folder from installed package data
+try:
+    _TEMPLATES_DIR = str(pkg_resources.files("RemoteCameraMonitoring").joinpath("templates"))
+except ModuleNotFoundError:
+    _TEMPLATES_DIR = "templates"
+app = Flask(__name__, template_folder=_TEMPLATES_DIR)
 app.secret_key = secrets.token_hex(32)  # random per-run; all sessions are invalidated on restart
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
@@ -531,8 +540,12 @@ def api_recordings():
 # ══════════════════════════════════════════════════════════════
 #  MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def main():
+    global CAMERA_INDEX, STREAM_WIDTH, STREAM_HEIGHT, STREAM_FPS
+    global AUDIO_DEVICE_INDEX, ENABLE_RECORDINGS, ENABLE_MOTION_DET
+    global FLASK_PORT, LOGIN_PASSWORD, RECORDINGS_DIR
+
+    parser = argparse.ArgumentParser(description="RemoteCamera — headless server")
     parser.add_argument("-s", "--setup", action="store_true", help="Run camera setup utility", required=False)
     parser.add_argument("-c", "--camera", type=int, default=CAMERA_INDEX, help="Camera index")
     parser.add_argument("--width", type=int, default=STREAM_WIDTH,  help="Stream width in pixels")
@@ -571,6 +584,9 @@ if __name__ == "__main__":
     ENABLE_MOTION_DET = args.motion
     FLASK_PORT = args.port
     LOGIN_PASSWORD = args.password
+    # Re-compute RECORDINGS_DIR in case --port or CWD changed
+    RECORDINGS_DIR = os.path.join(os.getcwd(), "recordings")
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
     _audio_label = f"device index {AUDIO_DEVICE_INDEX}" if AUDIO_DEVICE_INDEX is not None else "system default"
     _auth_label  = "enabled" if LOGIN_PASSWORD else "DISABLED (no --password set)"
@@ -582,7 +598,7 @@ if __name__ == "__main__":
     print(f"  Resolution:    {STREAM_WIDTH}x{STREAM_HEIGHT} @ {STREAM_FPS}fps")
     print(f"  Microphone:    {_audio_label}")
     print(f"  Auth:          {_auth_label}")
-    print(f"  Recordings:    ./{RECORDINGS_DIR}/")
+    print(f"  Recordings:    {RECORDINGS_DIR}")
     print(f"  Local access:  http://localhost:{FLASK_PORT}")
     print("  Remote access: see SETUP.md")
     print("=" * 55)
@@ -594,3 +610,7 @@ if __name__ == "__main__":
     aiortc_thread.start()
 
     app.run(host="0.0.0.0", port=FLASK_PORT, threaded=True, debug=True, use_reloader=False)
+
+
+if __name__ == "__main__":
+    main()

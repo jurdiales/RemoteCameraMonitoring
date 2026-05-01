@@ -1,0 +1,9 @@
+# Include templates and resources in source distributions (sdist)
+recursive-include RemoteCameraMonitoring/templates *.html
+recursive-include RemoteCameraMonitoring/resources *.png *.svg *.ico
+
+# Include documentation and metadata
+include README.md
+include SETUP.md
+include requirements.txt
+include LICENSE

@@ -11,8 +11,12 @@ import sys
 import subprocess
 import threading
 import tkinter as tk
+import importlib.resources as pkg_resources
 from tkinter import scrolledtext, font, ttk, messagebox
-from utils import list_camera_names, list_audio_input_names
+try:
+    from .utils import list_camera_names, list_audio_input_names  # installed package
+except ImportError:
+    from utils import list_camera_names, list_audio_input_names    # plain script
 import webbrowser
 
 import platform
@@ -23,7 +27,10 @@ if PLATFORM == 'Windows':
     myappid = 'mycompany.remotecameramonitoring.subproduct.version'
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
-import server as srv
+try:
+    from . import server as srv   # installed package
+except ImportError:
+    import server as srv          # plain script
 
 # ── Colour palette (mirrors the web UI) ──────────────────────────────────────────────────────────────────────────────
 BG       = "#0a0c0e"
@@ -49,6 +56,15 @@ MONO_SM  = (FONT, FONT_SZ)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER_SCRIPT = os.path.join(_HERE, "server.py")
+
+def _resource(filename: str) -> str:
+    """Return the absolute path to a file inside the package's resources/ folder.
+    Works both when running from source and when installed via pip.
+    """
+    try:
+        return str(pkg_resources.files("RemoteCameraMonitoring").joinpath("resources", filename))
+    except:
+        return os.path.join(_HERE, "resources", filename)
 
 MAX_CONSOLE_LINES = 300
 SYSTEM_DEFAULT = "System default"
@@ -172,11 +188,11 @@ class ServerLauncher(tk.Tk):
         self.configure(bg=BG)
         self.resizable(True, False)
         self.minsize(800, 400)
-        self._small_icon = tk.PhotoImage(file=os.path.join(_HERE, os.pardir, "resources", "icon16.png"))
+        self._small_icon = tk.PhotoImage(file=_resource("icon16.png"))
         if PLATFORM == 'Windows':
-            self._big_icon = tk.PhotoImage(file=os.path.join(_HERE, os.pardir, "resources", "icon32.png"))
+            self._big_icon = tk.PhotoImage(file=_resource("icon32.png"))
         else:
-            self._big_icon = tk.PhotoImage(file=os.path.join(_HERE, os.pardir, "resources", "icon64.png"))
+            self._big_icon = tk.PhotoImage(file=_resource("icon64.png"))
         self.iconphoto(False, self._small_icon, self._big_icon)
 
         self._proc   = None          # subprocess.Popen handle
@@ -258,7 +274,7 @@ class ServerLauncher(tk.Tk):
         frame = tk.Frame(parent, bg=BG)
         frame.pack(fill="x", padx=20, pady=12)
 
-        self._btn_browser_image = tk.PhotoImage(file=os.path.join(_HERE, os.pardir, "resources", "web.png")).subsample(2)
+        self._btn_browser_image = tk.PhotoImage(file=_resource("web.png")).subsample(2)
         self._btn_browser = tk.Button(frame, relief="flat", font=(FONT, 10, "bold"), command=self._open_web_interface,
                                       bg=GREEN, fg=BG, activebackground="#00c060", activeforeground=BG,
                                       padx=9, pady=9, cursor="hand2", bd=0, image=self._btn_browser_image)
@@ -323,7 +339,7 @@ class ServerLauncher(tk.Tk):
                 messagebox.showerror("Error", "Audio device selected not valid.")
                 return None
 
-        cmd = [sys.executable, SERVER_SCRIPT]
+        cmd = [sys.executable, "-m", "RemoteCameraMonitoring.server"]
         cmd += ["--camera", camera_index]
         if audio_index is not None:
             cmd += ["--audio-device", audio_index]
@@ -348,9 +364,18 @@ class ServerLauncher(tk.Tk):
         display = [("●●●●" if i > 0 and cmd[i - 1] == "--password" else c)
                    for i, c in enumerate(cmd)]
         self._log(f"$ {' '.join(display)}\n", "dim")
+        # Use module invocation so relative imports work whether the package is
+        # installed (pip install) or run from source (PYTHONPATH set below).
+        pkg_root = os.path.dirname(_HERE)  # directory that contains RemoteCameraMonitoring/
+        # Ensure the package root is importable in the subprocess (needed
+        # when running from source without 'pip install -e .').
+        _env = os.environ.copy()
+        pythonpath = _env.get("PYTHONPATH", "")
+        if pkg_root not in pythonpath.split(os.pathsep):
+            _env["PYTHONPATH"] = pkg_root + (os.pathsep + pythonpath if pythonpath else "")
         try:
             self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=_HERE,)
+                stderr=subprocess.STDOUT, text=True, bufsize=1, env=_env)
         except Exception as exc:
             self._log(f"Error: {exc}\n", "err")
             return
