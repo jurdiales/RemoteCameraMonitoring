@@ -92,7 +92,7 @@ def _label(parent, text, row, col):
 def _entry(parent, default, row, col, width=8, show='', validate='none', validate_cmd=''):
     var = tk.StringVar(value=str(default))
     e = tk.Entry(
-        parent, textvariable=var, width=width, show=show, justify=tk.RIGHT,
+        parent, textvariable=var, width=width, show=show, justify=tk.CENTER,
         bg=PANEL, fg=TEXT, insertbackground=TEXT, relief="flat", font=MONO,
         highlightthickness=1, highlightbackground=BORDER, highlightcolor=GREEN,
         validate=validate, validatecommand=validate_cmd, # pyright: ignore[reportArgumentType]
@@ -137,7 +137,7 @@ def _combobox(parent, values, row, col, colspan=3):
     cbb.option_add('*TCombobox*Listbox.borderWidth', 0)
     cbb.option_add("*TCombobox*Listbox.relief", "flat")
     cbb.configure(font=MONO)
-    cbb.grid(row=row, column=col, columnspan=colspan, sticky="we", pady=3, padx=20)
+    cbb.grid(row=row, column=col, columnspan=colspan, sticky="we", pady=3, padx=(20, 20))
     if len(values) > 0:
         cbb.current(0)
     return cbb
@@ -207,6 +207,11 @@ class ServerLauncher(tk.Tk):
     
     def _open_web_interface(self):
         webbrowser.open(f"http://localhost:{self._port.get()}")
+    
+    def _clear_console(self):
+        self._console.config(state="normal")
+        self._console.delete('1.0', tk.END)
+        self._console.config(state="disabled")
     
     # ── UI ───────────────────────────────────────────────────────────────────────────────────────────────────────────
     def _build_ui(self):
@@ -278,7 +283,7 @@ class ServerLauncher(tk.Tk):
         self._btn_browser = tk.Button(frame, relief="flat", font=(FONT, 10, "bold"), command=self._open_web_interface,
                                       bg=GREEN, fg=BG, activebackground="#00c060", activeforeground=BG,
                                       padx=9, pady=9, cursor="hand2", bd=0, image=self._btn_browser_image)
-        self._btn_browser.pack(side='right', padx=5)
+        self._btn_browser.pack(side='right', padx=(5, 0))
 
         self._btn_var = tk.StringVar(value="▶   START SERVER")
         self._btn = tk.Button(frame, textvariable=self._btn_var, command=self._toggle,
@@ -292,6 +297,12 @@ class ServerLauncher(tk.Tk):
         header = tk.Frame(parent, bg=PANEL)
         header.grid(row=0, column=1, sticky='nswe')
         tk.Label(header, text="CONSOLE OUTPUT", bg=PANEL, fg=DIM, font=MONO_SM).pack(side="left", padx=20, pady=5)
+        self._button_border = tk.Frame(header, highlightbackground=DIM, highlightthickness=1, bd=0)
+        self._button_border.pack(side='left', padx=5)
+        self._btn_clear = tk.Button(self._button_border, relief="flat", font=(FONT, 10, "bold"), command=self._clear_console,
+                                    bg=PANEL, fg=DIM, activebackground=BG, activeforeground=DIM,
+                                    padx=5, pady=5, cursor="hand2", bd=0, text='CLEAR')
+        self._btn_clear.pack(side='left')
         self._dot = tk.Label(header, text="●", bg=PANEL, fg=DIM, font=MONO)
         self._dot.pack(side="right", padx=20, pady=5)
 
