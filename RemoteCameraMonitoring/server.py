@@ -280,13 +280,25 @@ class MicrophoneAudioTrack(AudioStreamTrack):
         self._pts = 0
         sd.default.device = AUDIO_DEVICE_INDEX
 
-        # Open the input stream in a daemon thread so it doesn't block the
-        # asyncio event loop.  The callback pushes raw PCM into _queue.
+        # Query the device's native sample rate so we never request an
+        # unsupported rate (e.g. many webcam mics only support 16 000 Hz).
+        try:
+            dev_info = sd.query_devices(AUDIO_DEVICE_INDEX, kind="input")
+            self._native_rate: int = int(dev_info["default_samplerate"])  # type: ignore[index]
+        except Exception:
+            self._native_rate = AUDIO_SAMPLE_RATE   # safe fallback
+
+        # Scale the blocksize to keep ~20 ms chunks at the native rate.
+        native_blocksize = max(1, round(
+            self._native_rate * AUDIO_CHUNK_FRAMES / AUDIO_SAMPLE_RATE
+        ))
+
+        # Open the input stream; callback pushes raw PCM into _queue.
         self._stream = sd.InputStream(
-            samplerate=AUDIO_SAMPLE_RATE,
+            samplerate=self._native_rate,
             channels=AUDIO_CHANNELS,
             dtype="int16",
-            blocksize=AUDIO_CHUNK_FRAMES,
+            blocksize=native_blocksize,
             device=AUDIO_DEVICE_INDEX,
             callback=self._sd_callback,
         )
@@ -297,6 +309,23 @@ class MicrophoneAudioTrack(AudioStreamTrack):
         if not self._queue.full():
             self._queue.put_nowait(indata.copy())
 
+    def _resample(self, pcm: np.ndarray) -> np.ndarray:
+        """Linear-interpolation resample from _native_rate → AUDIO_SAMPLE_RATE.
+
+        Quality is sufficient for voice/surveillance audio and requires no
+        extra dependencies beyond numpy (already installed).
+        """
+        n_in  = pcm.shape[0]
+        n_out = round(n_in * AUDIO_SAMPLE_RATE / self._native_rate)
+        xi = np.linspace(0.0, 1.0, n_in)
+        xo = np.linspace(0.0, 1.0, n_out)
+        if AUDIO_CHANNELS == 1:
+            return np.interp(xo, xi, pcm[:, 0]).astype(np.int16).reshape(-1, 1)
+        return np.column_stack([
+            np.interp(xo, xi, pcm[:, ch]).astype(np.int16)
+            for ch in range(AUDIO_CHANNELS)
+        ])
+
     async def recv(self):
         # Wait for a PCM chunk without blocking the event loop
         loop = asyncio.get_running_loop()
@@ -305,11 +334,15 @@ class MicrophoneAudioTrack(AudioStreamTrack):
         if pcm is None:
             raise Exception("Track stopped")
 
-        # pcm shape: (AUDIO_CHUNK_FRAMES, AUDIO_CHANNELS), dtype int16
-        # av expects shape (channels, samples) for 'fltp' or (1, samples) for s16
-        samples = pcm.T  # (channels, frames)
+        # Resample to the WebRTC target rate when the device runs at a
+        # different native rate (e.g. webcam mic at 16 000 Hz → 48 000 Hz).
+        if self._native_rate != AUDIO_SAMPLE_RATE:
+            pcm = self._resample(pcm)
 
-        audio_frame = av.AudioFrame.from_ndarray(samples, format="s16", layout="mono" if AUDIO_CHANNELS == 1 else "stereo")  # pyright: ignore[reportArgumentType]
+        # pcm shape: (frames, channels) — av expects (channels, frames)
+        samples = pcm.T
+        layout = "mono" if AUDIO_CHANNELS == 1 else "stereo"
+        audio_frame = av.AudioFrame.from_ndarray(samples, format="s16", layout=layout)  # pyright: ignore[reportArgumentType]
         audio_frame.sample_rate = AUDIO_SAMPLE_RATE
         audio_frame.pts         = self._pts
         audio_frame.time_base   = fractions.Fraction(1, AUDIO_SAMPLE_RATE)
