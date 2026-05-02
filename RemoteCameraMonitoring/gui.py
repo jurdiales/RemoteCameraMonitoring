@@ -89,7 +89,7 @@ def _label(parent, text, row, col):
         row=row, column=col, sticky="w", padx=(0, 8), pady=3)
 
 
-def _entry(parent, default, row, col, width=8, show='', validate='none', validate_cmd=''):
+def _entry(parent, default, row, col, width=8, show='', sticky='w', colspan=1, validate='none', validate_cmd=''):
     var = tk.StringVar(value=str(default))
     e = tk.Entry(
         parent, textvariable=var, width=width, show=show, justify=tk.CENTER,
@@ -97,7 +97,7 @@ def _entry(parent, default, row, col, width=8, show='', validate='none', validat
         highlightthickness=1, highlightbackground=BORDER, highlightcolor=GREEN,
         validate=validate, validatecommand=validate_cmd, # pyright: ignore[reportArgumentType]
     )
-    e.grid(row=row, column=col, sticky="w", pady=3, padx=20)
+    e.grid(row=row, column=col, columnspan=colspan, sticky=sticky, pady=3, padx=20)
     return var
 
 
@@ -264,6 +264,9 @@ class ServerLauncher(tk.Tk):
         self._port = _entry(f, srv.FLASK_PORT, r, 1, width=8)
         _label(f, "Password", r, 2)
         self._pwd = _entry(f, "", r, 3, width=14, show="●"); r += 1
+        _label(f, "Hash", r, 0)
+        env_hash = os.getenv(srv.PASSWORD_HASH_ENV, "")
+        self._hash = _entry(f, env_hash, r, 1, colspan=3, sticky="we"); r += 1
 
         # ── Audio ────────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "AUDIO", r); r += 2
@@ -359,8 +362,12 @@ class ServerLauncher(tk.Tk):
         cmd += ["--fps", self._fps.get().strip()]
         cmd += ["--port", self._port.get().strip()]
         pwd = self._pwd.get().strip()
+        hash = self._hash.get().strip()
+        # if the password is set, the user has just entered it, so prefer using it
         if pwd:
             cmd += ["--password", pwd]
+        elif hash:
+            cmd += ["--password-hash", hash]
         if self._motion.get():
             cmd.append("--motion")
         if self._record.get():
@@ -372,7 +379,7 @@ class ServerLauncher(tk.Tk):
         if cmd is None:
             return
         # Log the command with the password masked
-        display = [("●●●●" if i > 0 and cmd[i - 1] == "--password" else c)
+        display = [("●●●●" if i > 0 and (cmd[i - 1] == "--password" or cmd[i - 1] == "--password-hash") else c)
                    for i, c in enumerate(cmd)]
         self._log(f"$ {' '.join(display)}\n", "dim")
         # Use module invocation so relative imports work whether the package is

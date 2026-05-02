@@ -8,7 +8,6 @@ Local Access: http://localhost:port
 Remote Access: http://<public-ip>:port
 """
 
-import cv2
 import threading
 import time
 import datetime
@@ -18,19 +17,24 @@ import asyncio
 import queue
 import fractions
 import secrets
+import ssl
 import platform
 import importlib.resources as pkg_resources
 from functools import wraps
 
+import cv2
 from flask import Flask, Response, jsonify, render_template, request, session, redirect
 import numpy as np
 from aiortc import RTCIceServer, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, AudioStreamTrack, RTCConfiguration
 import av
 import sounddevice as sd
-try:
-    from .utils import list_cameras_opencv   # installed as package
-except ImportError:
-    from utils import list_cameras_opencv    # running as plain script
+
+try:    # installed as package
+    from .utils import list_cameras_opencv
+    from .password import hash_password, verify_password
+except ImportError:     # running as plain script
+    from utils import list_cameras_opencv
+    from password import hash_password, verify_password
 
 # ─────────────────────────────────────────────
 #  SETTINGS
@@ -61,7 +65,8 @@ RECORDINGS_DIR      = os.path.join(os.getcwd(), "recordings")  # stored relative
 MAX_RECORDINGS      = 50                # maximum number of recordings to store
 
 # Authentication
-LOGIN_PASSWORD      = ""                # password to access the web interface; leave empty to disable auth
+LOGIN_PASSWORD_HASH = ""                # PBKDF2-SHA256 hashed password
+PASSWORD_HASH_ENV   = "REMOTE_CAMERA_PASSWORD_HASH"
 # ─────────────────────────────────────────────
 
 # Resolve template folder from installed package data
@@ -445,10 +450,10 @@ def _mjpeg_generator():
 #  AUTHENTICATION
 # ══════════════════════════════════════════════════════════════
 def require_auth(f):
-    """Gate a route behind the configured password. No-op when LOGIN_PASSWORD is empty."""
+    """Gate a route behind the configured password. No-op when LOGIN_PASSWORD_HASH is empty."""
     @wraps(f)
     def decorated(*args, **kwargs):
-        if LOGIN_PASSWORD and not session.get("authenticated"):
+        if LOGIN_PASSWORD_HASH and not session.get("authenticated"):
             # Return JSON 401 for API / AJAX endpoints; redirect pages to login
             if request.path.startswith("/api/") or request.is_json:
                 return jsonify({"error": "Unauthorized"}), 401
@@ -459,11 +464,11 @@ def require_auth(f):
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if not LOGIN_PASSWORD:
+    if not LOGIN_PASSWORD_HASH:
         return redirect("/")
     if request.method == "POST":
         pwd = request.form.get("password", "")
-        if secrets.compare_digest(pwd.encode(), LOGIN_PASSWORD.encode()):
+        if verify_password(pwd, LOGIN_PASSWORD_HASH):
             session["authenticated"] = True
             session["from_login"] = True
             return redirect("/")
@@ -474,7 +479,7 @@ def login():
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect("/login" if LOGIN_PASSWORD else "/")
+    return redirect("/login" if LOGIN_PASSWORD_HASH else "/")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -485,7 +490,7 @@ def logout():
 def index():
     from_login = session.pop("from_login", False)
     audio_enabled = "False" if AUDIO_DEVICE_INDEX is not None and AUDIO_DEVICE_INDEX == -1 else "True"
-    return render_template("index.html", auth_enabled=bool(LOGIN_PASSWORD), from_login=from_login,
+    return render_template("index.html", auth_enabled=bool(LOGIN_PASSWORD_HASH), from_login=from_login,
             audio_enabled=audio_enabled)
 
 
@@ -543,7 +548,7 @@ def api_recordings():
 def main():
     global CAMERA_INDEX, STREAM_WIDTH, STREAM_HEIGHT, STREAM_FPS
     global AUDIO_DEVICE_INDEX, ENABLE_RECORDINGS, ENABLE_MOTION_DET
-    global FLASK_PORT, LOGIN_PASSWORD, RECORDINGS_DIR
+    global FLASK_PORT, LOGIN_PASSWORD_HASH, RECORDINGS_DIR
 
     parser = argparse.ArgumentParser(description="RemoteCamera — headless server")
     parser.add_argument("-s", "--setup", action="store_true", help="Run camera setup utility", required=False)
@@ -555,7 +560,10 @@ def main():
     parser.add_argument("-r", "--record", action="store_true", default=ENABLE_RECORDINGS, help="Enable recordings")
     parser.add_argument("-m", "--motion", action="store_true", default=ENABLE_MOTION_DET, help="Enable motion detection")
     parser.add_argument("-p", "--port", type=int, default=FLASK_PORT, help="Flask server port")
-    parser.add_argument("--password", type=str, default=LOGIN_PASSWORD, metavar="PWD", help="Password to protect the web interface (leave empty to disable)")
+    parser.add_argument("--password", type=str, default=None, metavar="PWD", help="Password to protect the web interface (leave empty to disable)")
+    parser.add_argument("--password-hash", type=str, default=None, metavar="HASH", help="Precomputed password hash; or set REMOTE_CAMERA_PASSWORD_HASH instead")
+    parser.add_argument("--ssl-cert", type=str, default=None, metavar="PATH", help="Path to TLS certificate file for HTTPS")
+    parser.add_argument("--ssl-key", type=str, default=None, metavar="PATH", help="Path to TLS private key file for HTTPS")
     args = parser.parse_args()
 
     if args.setup:
@@ -583,13 +591,35 @@ def main():
     ENABLE_RECORDINGS = args.record
     ENABLE_MOTION_DET = args.motion
     FLASK_PORT = args.port
-    LOGIN_PASSWORD = args.password
+
+    env_hash = os.getenv(PASSWORD_HASH_ENV, "")
+    if args.password:
+        LOGIN_PASSWORD_HASH = hash_password(args.password)
+    elif args.password_hash:
+        LOGIN_PASSWORD_HASH = args.password_hash
+    elif env_hash:
+        LOGIN_PASSWORD_HASH = env_hash
+    else:
+        LOGIN_PASSWORD_HASH = ""
+
+    if (args.ssl_cert and not args.ssl_key) or (args.ssl_key and not args.ssl_cert):
+        parser.error("Both --ssl-cert and --ssl-key are required to enable HTTPS")
+
+    ssl_context = None
+    if args.ssl_cert and args.ssl_key:
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(args.ssl_cert, args.ssl_key)
+
     # Re-compute RECORDINGS_DIR in case --port or CWD changed
     RECORDINGS_DIR = os.path.join(os.getcwd(), "recordings")
     os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
     _audio_label = f"device index {AUDIO_DEVICE_INDEX}" if AUDIO_DEVICE_INDEX is not None else "system default"
-    _auth_label  = "enabled" if LOGIN_PASSWORD else "DISABLED (no --password set)"
+    if LOGIN_PASSWORD_HASH:
+        _auth_label = "enabled (hashed password configured)"
+    else:
+        _auth_label = "DISABLED (no password set)"
+    _https_label = f"https://localhost:{FLASK_PORT}" if ssl_context else f"http://localhost:{FLASK_PORT}"
 
     print("=" * 55)
     print("  Remote Camera Monitoring System")
@@ -599,7 +629,7 @@ def main():
     print(f"  Microphone:    {_audio_label}")
     print(f"  Auth:          {_auth_label}")
     print(f"  Recordings:    {RECORDINGS_DIR}")
-    print(f"  Local access:  http://localhost:{FLASK_PORT}")
+    print(f"  Local access:  {_https_label}")
     print("  Remote access: see SETUP.md")
     print("=" * 55)
 
@@ -609,7 +639,7 @@ def main():
     aiortc_thread = threading.Thread(target=_start_aiortc_loop, daemon=True)
     aiortc_thread.start()
 
-    app.run(host="0.0.0.0", port=FLASK_PORT, threaded=True, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=FLASK_PORT, threaded=True, debug=True, use_reloader=False, ssl_context=ssl_context)
 
 
 if __name__ == "__main__":
