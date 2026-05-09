@@ -12,7 +12,7 @@ import subprocess
 import threading
 import tkinter as tk
 import importlib.resources as pkg_resources
-from tkinter import scrolledtext, font, ttk, messagebox
+from tkinter import scrolledtext, font, ttk, messagebox, filedialog
 try:
     from .utils import list_camera_names, list_audio_input_names  # installed package
 except ImportError:
@@ -84,9 +84,9 @@ def _section_label(parent, text, row, colspan=4):
     _sep(parent, row + 1, colspan)
 
 
-def _label(parent, text, row, col):
+def _label(parent, text, row, col, colspan=1):
     tk.Label(parent, text=text, bg=BG, fg=DIM, font=MONO, anchor="w").grid(
-        row=row, column=col, sticky="w", padx=(0, 8), pady=3)
+        row=row, column=col, columnspan=colspan, sticky="w", padx=(0, 8), pady=3)
 
 
 def _entry(parent, default, row, col, width=8, show='', sticky='w', colspan=1, validate='none', validate_cmd=''):
@@ -184,7 +184,7 @@ class ServerLauncher(tk.Tk):
 
     def __init__(self, camera_list, audio_input_list):
         super().__init__()
-        self.title("RemoteCamera — Launcher")
+        self.title("RemoteCamera")
         self.configure(bg=BG)
         self.resizable(True, False)
         self.minsize(800, 400)
@@ -202,11 +202,16 @@ class ServerLauncher(tk.Tk):
         _generate_combobox_style(self)
         self._available_cameras = camera_list
         self._available_audio_sources = audio_input_list
+        self._has_ssl_cert = False
+        self._has_ssl_key = False
         self._build_ui()
         self._poll_queue()           # start the periodic UI updater
     
     def _open_web_interface(self):
-        webbrowser.open(f"http://localhost:{self._port.get()}")
+        if self._has_ssl_cert and self._has_ssl_key:
+            webbrowser.open(f"https://localhost:{self._port.get()}")
+        else:
+            webbrowser.open(f"http://localhost:{self._port.get()}")
     
     def _clear_console(self):
         self._console.config(state="normal")
@@ -267,6 +272,41 @@ class ServerLauncher(tk.Tk):
         _label(f, "Hash", r, 0)
         env_hash = os.getenv(srv.PASSWORD_HASH_ENV, "")
         self._hash = _entry(f, env_hash, r, 1, colspan=3, sticky="we"); r += 1
+        _label(f, "Remote HTTPS / TLS configuration:", r, 0, colspan=4); r += 1
+        
+        self._ssl_cert_file = ""
+        self._ssl_cert_var = tk.StringVar(value="No certificate file selected")
+        self._ssl_key_file = ""
+        self._ssl_key_var = tk.StringVar(value="No key file selected")
+        
+        def _open_file_name(name: str):
+            result = filedialog.askopenfilename(parent=self, title=f"Open {name} file", initialdir=_HERE, filetypes=(
+                ("SSL/TLS Certificates", "*.pem"), ("All files", "*.*")
+            ))
+            if (len(result) > 0) and (result.split('.')[-1] == "pem"):
+                if name == "certificate":
+                    self._ssl_cert_file = result
+                    self._ssl_cert_var.set(os.path.basename(result))
+                    self._has_ssl_cert = True
+                elif name == "key":
+                    self._ssl_key_file = result
+                    self._ssl_key_var.set(os.path.basename(result))
+                    self._has_ssl_key = True
+        
+        self._open_cert_frame = tk.Frame(f, highlightbackground=DIM, highlightthickness=1, bd=0)
+        self._open_cert_frame.grid(row=r, column=0, columnspan=2, sticky='w', pady=3, padx=20)
+        self._btn_open_cert = tk.Button(self._open_cert_frame, text="Open certificate", command=lambda: _open_file_name("certificate"), bg=PANEL, fg=DIM,
+                                        activebackground=BG, activeforeground=DIM, font=MONO, relief="flat", cursor="hand2", bd=0, width=12)
+        self._btn_open_cert.pack()
+        self._certificate_label = tk.Label(f, textvariable=self._ssl_cert_var, bg=PANEL, fg=DIM, font=MONO)
+        self._certificate_label.grid(row=r, column=2, columnspan=2, sticky='we', pady=3, padx=(0, 20)); r += 1
+        self._open_key_frame = tk.Frame(f, highlightbackground=DIM, highlightthickness=1, bd=0)
+        self._open_key_frame.grid(row=r, column=0, columnspan=2, sticky='w', pady=3, padx=20)
+        self._btn_open_key = tk.Button(self._open_key_frame, text="Open key", command=lambda: _open_file_name("key"), bg=PANEL, fg=DIM, activebackground=BG,
+                                       activeforeground=DIM, font=MONO, relief="flat", cursor="hand2", bd=0, width=12)
+        self._btn_open_key.pack()
+        self._key_label = tk.Label(f, textvariable=self._ssl_key_var, bg=PANEL, fg=DIM, font=MONO)
+        self._key_label.grid(row=r, column=2, columnspan=2, sticky='we', pady=3, padx=(0, 20)); r += 1
 
         # ── Audio ────────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "AUDIO", r); r += 2
@@ -299,19 +339,19 @@ class ServerLauncher(tk.Tk):
         console_panel.grid(row=1, column=1, sticky='nswe', padx=(0, 2))
         header = tk.Frame(parent, bg=PANEL)
         header.grid(row=0, column=1, sticky='nswe')
-        tk.Label(header, text="CONSOLE OUTPUT", bg=PANEL, fg=DIM, font=MONO_SM).pack(side="left", padx=20, pady=5)
+
+        self._dot = tk.Label(header, text="●", bg=PANEL, fg=DIM, font=MONO)
+        self._dot.pack(side="left", padx=(10, 0), pady=5)
+        tk.Label(header, text="CONSOLE OUTPUT", bg=PANEL, fg=DIM, font=MONO_SM).pack(side="left", padx=(20, 0), pady=5)
         self._button_border = tk.Frame(header, highlightbackground=DIM, highlightthickness=1, bd=0)
-        self._button_border.pack(side='left', padx=5)
+        self._button_border.pack(side='right', padx=20)
         self._btn_clear = tk.Button(self._button_border, relief="flat", font=(FONT, 10, "bold"), command=self._clear_console,
                                     bg=PANEL, fg=DIM, activebackground=BG, activeforeground=DIM,
                                     padx=5, pady=5, cursor="hand2", bd=0, text='CLEAR')
-        self._btn_clear.pack(side='left')
-        self._dot = tk.Label(header, text="●", bg=PANEL, fg=DIM, font=MONO)
-        self._dot.pack(side="right", padx=20, pady=5)
+        self._btn_clear.pack()
 
         self._console = scrolledtext.ScrolledText(console_panel, bg="#060809", fg=TEXT, font=(TERM, 8),
             relief="flat", bd=0, state="disabled", wrap="word", height=12)
-        
         self._console.pack(fill="both", expand=True)
         self._console.tag_config("ok", foreground=GREEN)
         self._console.tag_config("err", foreground=RED)
@@ -361,6 +401,7 @@ class ServerLauncher(tk.Tk):
         cmd += ["--height", self._height.get().strip()]
         cmd += ["--fps", self._fps.get().strip()]
         cmd += ["--port", self._port.get().strip()]
+        
         pwd = self._pwd.get().strip()
         hash = self._hash.get().strip()
         # if the password is set, the user has just entered it, so prefer using it
@@ -368,6 +409,14 @@ class ServerLauncher(tk.Tk):
             cmd += ["--password", pwd]
         elif hash:
             cmd += ["--password-hash", hash]
+        
+        # SSL checks
+        if self._has_ssl_cert and self._has_ssl_key:
+            cmd += ["--ssl-cert", self._ssl_cert_file]
+            cmd += ["--ssl-key", self._ssl_key_file]
+        else:
+            self._log("No HTTPS conection will be available. Remote conections may not work\n", "warn")
+
         if self._motion.get():
             cmd.append("--motion")
         if self._record.get():

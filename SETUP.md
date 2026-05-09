@@ -166,7 +166,7 @@ For the server to start automatically when you turn on the laptop:
 
 *(Note: When using `gui.py` you will have to press "START SERVER" manually each time. If you prefer the server to start directly without an interface, you can use `server.py` by adding arguments in the console)*
 
-Console arguments:
+## 8. Console arguments
 
 | Argument | Meaning |
 | -------------------- | -------------------- |
@@ -181,10 +181,13 @@ Console arguments:
 | -m, --motion | Enable motion detection |
 | -p, --port | Flask server port |
 | --password | Password to protect the web interface (leave empty- to disable) |
+| --password-hash | Precomputed password hash |
+| --ssl-cert | Path to TLS certificate file for HTTPS |
+| --ssl-key | Path to TLS private key file for HTTPS |
 
 ---
 
-## 8. Advanced Settings
+## 9. Advanced Settings
 
 Thanks to the new graphical interface (`gui.py`), most settings are configured from the Launcher:
 - **Camera and Audio**: Detected automatically; you can select them from the dropdown list.
@@ -196,7 +199,7 @@ For additional internal options (motion sensitivity, recording duration, etc.), 
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Problem                         | Solution                                              |
 |---------------------------------|-------------------------------------------------------|
@@ -206,3 +209,5 @@ For additional internal options (motion sensitivity, recording duration, etc.), 
 | Public IP changes               | Install DuckDNS (see section 5)                       |
 | Error installing OpenCV         | Try `pip install opencv-python-headless`              |
 | Server closes immediately       | Run with `pythonw server.py` to hide the window       |
+
+Note: Some modern mobile browsers may require a HTTPS conection for WebRTC to work correctly.

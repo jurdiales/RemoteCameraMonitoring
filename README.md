@@ -9,7 +9,7 @@ Remote camera broadcast system using Python, WebRTC, and Flask.
 - **Audio Support**: Captures system audio or microphone streams seamlessly alongside video.
 - **Motion Detection**: Built-in motion detection capabilities.
 - **Auto-Recording**: Automatically save video clips when motion is detected.
-- **Remote Access**: Stream your camera securely from outside your local network.
+- **Remote Access**: Stream your camera securely from outside your local network. See HTTPS / TLS support below.
 
 ## Requirements
 
@@ -108,9 +108,9 @@ For development only, passwords are hashed on startup. The password can be enter
 python -m RemoteCameraMonitoring.server --password "MySecurePassword123"
 ```
 
-### HTTPS / TLS Support
+### HTTPS / TLS Support (Remote Access)
 
-To run the server over HTTPS, provide a certificate and private key:
+To run the server over HTTPS, needed for correct remote access, provide a certificate and private key:
 
 ```bash
 python -m RemoteCameraMonitoring.server --ssl-cert /path/to/cert.pem --ssl-key /path/to/key.pem
@@ -126,7 +126,7 @@ Then access the server at `https://localhost:8090` (accept the browser warning f
 ### Security Best Practices
 
 1. **Use hashed passwords** — store `REMOTE_CAMERA_PASSWORD_HASH` in a secure location, never commit it to version control.
-2. **Use HTTPS** — especially when accessing remotely.
+2. **Use HTTPS** — especially when accessing remotely, as many mobile browsers require a Secure Context (HTTPS) to allow WebRTC connections to work correctly.
 3. **Keep Python and dependencies updated** — run `pip install --upgrade -r requirements.txt`.
 4. **Use strong passwords** — minimum 12 characters with mixed case, numbers, and symbols.
 5. **Change passwords periodically** — regenerate hashes and update your configuration.
