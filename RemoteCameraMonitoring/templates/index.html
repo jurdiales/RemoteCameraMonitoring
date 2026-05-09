@@ -572,22 +572,54 @@
             }
         }
 
+        // Tracks whether we have already activated the MJPEG fallback.
+        // We use an explicit boolean instead of checking mjpeg.src because
+        // browsers resolve an empty string src to the base page URL, which
+        // would make the guard always truthy after the first showWebRTC() call.
+        let _mjpegActive = false;
+
         function showWebRTC() {
             mjpeg.style.display = 'none';
-            mjpeg.src = '';
+            // Clear the src attribute entirely to stop any ongoing MJPEG request.
+            mjpeg.removeAttribute('src');
             video.style.display = 'block';
         }
 
         function showMJPEG() {
-            if (mjpeg.src) {
-                return;
+            if (_mjpegActive) {
+                return;  // already showing MJPEG — do nothing
             }
-            console.warn('Falling back to MJPEG stream');
+            _mjpegActive = true;
+            console.warn('WebRTC unavailable — falling back to MJPEG stream');
+
+            // Hide the WebRTC video element and release its source
             video.style.display = 'none';
             video.srcObject = null;
+
+            // Show the MJPEG img element
             mjpeg.src = '/stream';
             mjpeg.style.display = 'block';
+
+            // Update status badges to reflect MJPEG mode
             document.getElementById('lbl-live').textContent = 'LIVE (MJPEG)';
+            const dotLive = document.getElementById('dot-live');
+            dotLive.classList.remove('ok');
+            dotLive.style.background = 'var(--amber)';
+            dotLive.style.boxShadow = '0 0 6px var(--amber)';
+
+            // Audio is not available in MJPEG mode
+            document.getElementById('lbl-audio').textContent = 'No audio (MJPEG)';
+            const dotAudio = document.getElementById('dot-audio');
+            dotAudio.classList.remove('ok');
+            dotAudio.style.background = 'var(--text-dim)';
+            dotAudio.style.boxShadow = 'none';
+
+            // Hide the mute button — irrelevant in MJPEG mode
+            document.getElementById('mute-btn').style.display = 'none';
+            document.getElementById('unmute-nudge').style.display = 'none';
+
+            // Dismiss the play overlay if it was showing
+            document.getElementById('play-overlay').classList.remove('visible', 'fade-out');
         }
 
         const pc = new RTCPeerConnection({
@@ -613,11 +645,36 @@
             }
         };
 
+        // Timeout to detect a stalled ICE negotiation. If the connection stays
+        // in 'checking' for more than 12 seconds without reaching 'connected',
+        // we fall back to MJPEG (the 'failed' event may never fire in some browsers).
+        let _iceTimeoutId = null;
+
         pc.oniceconnectionstatechange = () => {
             const state = pc.iceConnectionState;
-            // 'disconnected' is transient and can self-recover; only fall back on terminal states
-            if (state === 'failed' || state === 'closed') {
-                console.warn('WebRTC connection state:', state);
+
+            if (state === 'checking') {
+                // Arm a 12-second watchdog
+                _iceTimeoutId = setTimeout(() => {
+                    if (pc.iceConnectionState !== 'connected' &&
+                        pc.iceConnectionState !== 'completed') {
+                        console.warn('ICE stuck in checking — falling back to MJPEG');
+                        showMJPEG();
+                    }
+                }, 12000);
+            } else if (state === 'connected' || state === 'completed') {
+                // Connection succeeded — cancel the watchdog
+                if (_iceTimeoutId) {
+                    clearTimeout(_iceTimeoutId);
+                    _iceTimeoutId = null;
+                }
+            } else if (state === 'failed' || state === 'closed') {
+                // Terminal state — fall back immediately
+                if (_iceTimeoutId) {
+                    clearTimeout(_iceTimeoutId);
+                    _iceTimeoutId = null;
+                }
+                console.warn('WebRTC ICE connection state:', state);
                 showMJPEG();
             }
         };
@@ -653,6 +710,12 @@
         // ── Click-to-start overlay ─────────────────────
         const playOverlay = document.getElementById('play-overlay');
         playOverlay.addEventListener('click', () => {
+            // If video source was removed (e.g. fallback to MJPEG), just hide the overlay
+            if (!video.srcObject) {
+                playOverlay.classList.remove('visible', 'fade-out');
+                return;
+            }
+
             video.play().then(() => {
                 playOverlay.classList.add('fade-out');
                 setTimeout(() => playOverlay.classList.remove('visible', 'fade-out'), 380);
@@ -816,6 +879,9 @@
         function _set(id, val) { document.getElementById(id).textContent = val; }
 
         async function fetchStreamStats() {
+            // Skip stats polling once we have fallen back to MJPEG
+            if (_mjpegActive) return;
+
             if (pc.connectionState !== 'connected') {
                 ['si-resolution','si-vcodec','si-acodec','si-fps','si-bitrate']
                     .forEach(id => { _set(id, '—'); _dim(id); });
