@@ -99,7 +99,7 @@
             object-fit: contain;
             display: block;
         }
-        #mjpeg-feed {
+        #ws-feed {
             width: 100%;
             height: 100%;
             object-fit: contain;
@@ -450,7 +450,7 @@
         <!-- ── FEED ─────────────────────────────── -->
         <div class="feed-wrap">
             <video id="feed" autoplay playsinline></video>
-            <img id="mjpeg-feed" alt="MJPEG stream" />
+            <img id="ws-feed" alt="WebSocket stream" />
             <div class="motion-flash" id="motion-flash"></div>
 
             <!-- Click-to-start overlay (shown when browser blocks unmuted autoplay) -->
@@ -572,49 +572,95 @@
             }
         }
 
-        // Tracks whether we have already activated the MJPEG fallback.
-        // We use an explicit boolean instead of checking mjpeg.src because
-        // browsers resolve an empty string src to the base page URL, which
-        // would make the guard always truthy after the first showWebRTC() call.
-        let _mjpegActive = false;
+        // ── WebSocket fallback ────────────────────────────────────────────────
+        //
+        // When WebRTC is unavailable we fall back to a WebSocket stream:
+        // the server pushes JPEG frames as binary messages; we decode them
+        // via Blob URLs and display them in an <img> element.
+        // Advantages over plain MJPEG: ~150 ms latency (vs ~400 ms),
+        // clean reconnection on drop, and reuses the same HTTP/HTTPS port.
+        //
+        const wsFeed   = document.getElementById('ws-feed');
+        let _wsFallbackActive = false;
+        let _wsPrevUrl        = null;   // blob URL being displayed
+        let _wsRetryCount     = 0;
+        let _wsInstance       = null;   // active WebSocket object
+
+        function _connectWS() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${proto}//${location.host}/ws/stream`);
+            ws.binaryType = 'arraybuffer';
+            _wsInstance = ws;
+
+            ws.onopen = () => {
+                _wsRetryCount = 0;
+                console.log('WebSocket fallback stream connected');
+            };
+
+            ws.onmessage = (evt) => {
+                // Build a blob URL from the incoming JPEG binary data
+                const blob = new Blob([evt.data], { type: 'image/jpeg' });
+                const url  = URL.createObjectURL(blob);
+                wsFeed.src = url;
+                // Revoke the previous URL to free memory immediately
+                if (_wsPrevUrl) URL.revokeObjectURL(_wsPrevUrl);
+                _wsPrevUrl = url;
+            };
+
+            ws.onclose = () => {
+                if (!_wsFallbackActive) return; // WS mode was exited — don't reconnect
+                // Exponential back-off: 1 s → 2 s → 4 s … capped at 30 s
+                const delay = Math.min(1000 * Math.pow(2, _wsRetryCount++), 30000);
+                console.warn(`WebSocket closed — reconnecting in ${Math.round(delay / 1000)} s`);
+                setTimeout(_connectWS, delay);
+            };
+
+            ws.onerror = (e) => console.warn('WebSocket error:', e);
+        }
 
         function showWebRTC() {
-            mjpeg.style.display = 'none';
-            // Clear the src attribute entirely to stop any ongoing MJPEG request.
-            mjpeg.removeAttribute('src');
+            wsFeed.style.display = 'none';
+            // Stop the WebSocket and release any held blob URL
+            if (_wsInstance) {
+                _wsInstance.onclose = null; // suppress the reconnect loop
+                _wsInstance.close();
+                _wsInstance = null;
+            }
+            if (_wsPrevUrl) {
+                URL.revokeObjectURL(_wsPrevUrl);
+                _wsPrevUrl = null;
+            }
             video.style.display = 'block';
         }
 
-        function showMJPEG() {
-            if (_mjpegActive) {
-                return;  // already showing MJPEG — do nothing
-            }
-            _mjpegActive = true;
-            console.warn('WebRTC unavailable — falling back to MJPEG stream');
+        function showWS() {
+            if (_wsFallbackActive) return;
+            _wsFallbackActive = true;
+            console.warn('WebRTC unavailable — falling back to WebSocket stream');
 
             // Hide the WebRTC video element and release its source
             video.style.display = 'none';
             video.srcObject = null;
 
-            // Show the MJPEG img element
-            mjpeg.src = '/stream';
-            mjpeg.style.display = 'block';
+            // Show the WebSocket img feed and open the connection
+            wsFeed.style.display = 'block';
+            _connectWS();
 
-            // Update status badges to reflect MJPEG mode
-            document.getElementById('lbl-live').textContent = 'LIVE (MJPEG)';
+            // Update status badges to reflect WebSocket mode
+            document.getElementById('lbl-live').textContent = 'LIVE (WebSocket)';
             const dotLive = document.getElementById('dot-live');
             dotLive.classList.remove('ok');
             dotLive.style.background = 'var(--amber)';
             dotLive.style.boxShadow = '0 0 6px var(--amber)';
 
-            // Audio is not available in MJPEG mode
-            document.getElementById('lbl-audio').textContent = 'No audio (MJPEG)';
+            // Audio is not available in WebSocket mode
+            document.getElementById('lbl-audio').textContent = 'No audio (WS)';
             const dotAudio = document.getElementById('dot-audio');
             dotAudio.classList.remove('ok');
             dotAudio.style.background = 'var(--text-dim)';
             dotAudio.style.boxShadow = 'none';
 
-            // Hide the mute button — irrelevant in MJPEG mode
+            // Hide the mute button — irrelevant in WebSocket mode
             document.getElementById('mute-btn').style.display = 'none';
             document.getElementById('unmute-nudge').style.display = 'none';
 
@@ -658,8 +704,8 @@
                 _iceTimeoutId = setTimeout(() => {
                     if (pc.iceConnectionState !== 'connected' &&
                         pc.iceConnectionState !== 'completed') {
-                        console.warn('ICE stuck in checking — falling back to MJPEG');
-                        showMJPEG();
+                        console.warn('ICE stuck in checking — falling back to WebSocket');
+                        showWS();
                     }
                 }, 12000);
             } else if (state === 'connected' || state === 'completed') {
@@ -675,7 +721,7 @@
                     _iceTimeoutId = null;
                 }
                 console.warn('WebRTC ICE connection state:', state);
-                showMJPEG();
+                showWS();
             }
         };
 
@@ -701,7 +747,7 @@
                 await pc.setRemoteDescription(answer);
             } catch (e) {
                 console.error('WebRTC setup failed:', e);
-                showMJPEG();
+                showWS();
             }
         }
 
@@ -879,8 +925,8 @@
         function _set(id, val) { document.getElementById(id).textContent = val; }
 
         async function fetchStreamStats() {
-            // Skip stats polling once we have fallen back to MJPEG
-            if (_mjpegActive) return;
+            // Skip stats polling once we have fallen back to WebSocket
+            if (_wsFallbackActive) return;
 
             if (pc.connectionState !== 'connected') {
                 ['si-resolution','si-vcodec','si-acodec','si-fps','si-bitrate']

@@ -28,6 +28,7 @@ setup(
     },
     install_requires=[
         "flask>=2.3",
+        "flask-sock>=0.2",
         "opencv-python>=4.8",
         "numpy>=1.24",
         "aiortc>=1.9.0",
