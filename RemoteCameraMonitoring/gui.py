@@ -66,7 +66,7 @@ def _resource(filename: str) -> str:
     except:
         return os.path.join(_HERE, "resources", filename)
 
-MAX_CONSOLE_LINES = 300
+MAX_CONSOLE_LINES = 1000
 SYSTEM_DEFAULT = "System default"
 
 # ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -187,7 +187,7 @@ class ServerLauncher(tk.Tk):
         self.title("RemoteCamera")
         self.configure(bg=BG)
         self.resizable(True, False)
-        self.minsize(800, 400)
+        self.minsize(900, 400)
         self._small_icon = tk.PhotoImage(file=_resource("icon16.png"))
         if PLATFORM == 'Windows':
             self._big_icon = tk.PhotoImage(file=_resource("icon32.png"))
@@ -415,7 +415,7 @@ class ServerLauncher(tk.Tk):
             cmd += ["--ssl-cert", self._ssl_cert_file]
             cmd += ["--ssl-key", self._ssl_key_file]
         else:
-            self._log("No HTTPS conection will be available. Remote conections may not work\n", "warn")
+            self._log("No HTTPS connection will be available. Remote connections may not work\n", "warn")
 
         if self._motion.get():
             cmd.append("--motion")
@@ -541,6 +541,7 @@ class ServerLauncher(tk.Tk):
 # ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 def main():
+    """Launch the remote camera GUI, enumerating local cameras and audio devices."""
     print("=" * 80)
     print("RemoteCamera GUI Launcher")
     print("=" * 80)

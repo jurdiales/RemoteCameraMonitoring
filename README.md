@@ -1,28 +1,30 @@
 # Remote Camera Monitoring
 
-Remote camera broadcast system using Python, WebRTC, and Flask.
+A Python-based live camera streaming system with WebRTC, Flask, OpenCV, and a Tkinter launcher.
+
+Stream webcam video and microphone audio to a browser, with optional motion detection, auto-recording, and secure access.
 
 ## Features
 
-- **WebRTC Video & Audio Streaming**: Real-time, low-latency transmission using `aiortc`.
-- **Graphical Launcher**: A built-in Tkinter GUI (`gui.py`) for easy configuration of cameras, microphones, resolution, framerate, and network settings.
-- **Audio Support**: Captures system audio or microphone streams seamlessly alongside video.
-- **Motion Detection**: Built-in motion detection capabilities.
-- **Auto-Recording**: Automatically save video clips when motion is detected.
-- **Remote Access**: Stream your camera securely from outside your local network. See HTTPS / TLS support below.
+- **WebRTC live streaming** for low-latency browser playback
+- **MJPEG/WebSocket fallback** for compatibility
+- **Tkinter GUI launcher** for camera, audio, resolution, framerate, and port selection
+- **Motion detection** and **automatic recording**
+- **Password authentication** and **HTTPS/TLS** support
+- **Cross-platform** support for Windows, macOS, and Linux
 
 ## Requirements
 
 - Python 3.10+
-- A connected webcam and an audio input device.
+- Webcam and audio input device
+- `pip install -r requirements.txt` (or `pip install .` for package install)
 
 ## Quick Start
 
 1. **Install dependencies**:
    ```bash
-   pip install -r requirements.txt
+   python -m pip install -r requirements.txt
    ```
-   *(Note: The GUI uses `pygrabber` for discovering audio/video devices on Windows. This is automatically installed if you follow the requirements)*
 
 2. **Launch the Application**:
    ```bash
@@ -37,29 +39,27 @@ Remote camera broadcast system using Python, WebRTC, and Flask.
 
 ## Package Install
 
-1. **Development** (editable install — changes take effect immediately):
+1. **Regular install** (recommended):
    ```bash
-   cd FOLDER_WHERE_THIS_FILE_IS
-   pip install -e .
+   pip install .
    ```
 
-2. **Regular install** (recommended):
+2. **Development** (editable install — changes take effect immediately):
    ```bash
-   cd FOLDER_WHERE_THIS_FILE_IS
-   pip install .
+   pip install -e .
    ```
 
 3. **Run GUI launcher:**
    ```bash
-   python -m RemoteCameraMonitoring
-   ```
-   Once installed, the GUI can be launched using the script **remotecamera** on a terminal:
-   ```bash
    remotecamera
+   # OR
+   python -m RemoteCameraMonitoring
    ```
 
 4. **Run headless server directly:**
    ```bash
+   remotecameraserver --camera 0 --port 8090
+   # OR
    python -m RemoteCameraMonitoring.server --camera 0 --port 8090
    ```
    *(Note: all CLI flags available, , please read **[SETUP.md](SETUP.md)**)*
@@ -100,9 +100,7 @@ Then, you can put the hash on the GUI launcher, or start the server directly usi
    ```
 *(Note: if the environment variable REMOTE_CAMERA_PASSWORD_HASH is already set, it will appear on the GUI launcher and will be used by the server)*
 
-#### Option 2: Direct password (less secure)
-
-For development only, passwords are hashed on startup. The password can be entered 
+For development only, the password can be entered in plain text (it will be hashed in memory on startup):
 
 ```bash
 python -m RemoteCameraMonitoring.server --password "MySecurePassword123"
@@ -133,7 +131,11 @@ Then access the server at `https://localhost:8090` (accept the browser warning f
 
 ## Documentation
 
-For a complete step-by-step installation guide, advanced configuration, and instructions on how to access the camera remotely from outside your home network, please read the **[SETUP.md](SETUP.md)** file (Available in Spanish).
+See **[SETUP.md](SETUP.md)** for detailed setup, remote access, and troubleshooting.
+
+Additional technical notes are available in the `doc/` folder:
+- `doc/RemoteConnection.md`
+- `doc/StreamTechnologies.md`
 
 ## License
 

@@ -5,9 +5,9 @@
 
 ## 1. Prerequisites
 
-- **Python 3.9 or higher** — download from https://python.org  
+- **Python 3.10 or higher** — download from https://python.org  
   ⚠️ During installation, check the **"Add Python to PATH"** option
-- **Webcam** connected to the laptop (USB or built-in)
+- **Webcam and Microphone** connected to the laptop
 - Laptop **always on and connected to the network** while you want to monitor
 
 ---
@@ -30,8 +30,14 @@ python -m pip install -r requirements.txt
 
 ## 3. Starting the Server
 
-```
+```bash
+# If installed as a package (recommended)
+remotecamera
+
+# If running from source
 python gui.py
+# OR
+python -m RemoteCameraMonitoring
 ```
 
 A configuration window (Launcher) will open where you can:
@@ -164,7 +170,7 @@ For the server to start automatically when you turn on the laptop:
 2. Press `Win + R`, type `shell:startup` and press Enter
 3. Copy (or create a shortcut to) `start_RemoteMonitoring.bat` into that folder
 
-*(Note: When using `gui.py` you will have to press "START SERVER" manually each time. If you prefer the server to start directly without an interface, you can use `server.py` by adding arguments in the console)*
+*(Note: When using the GUI you will have to press "START SERVER" manually each time. If you prefer the server to start directly without an interface, you can use the headless command in your batch file: `remotecameraserver` or `python -m RemoteCameraMonitoring.server` followed by your desired arguments)*
 
 ## 8. Console arguments
 
@@ -210,4 +216,6 @@ For additional internal options (motion sensitivity, recording duration, etc.), 
 | Error installing OpenCV         | Try `pip install opencv-python-headless`              |
 | Server closes immediately       | Run with `pythonw server.py` to hide the window       |
 
-Note: Some modern mobile browsers may require a HTTPS conection for WebRTC to work correctly.
+Note: Some modern mobile browsers require a **Secure Context (HTTPS)** for WebRTC to work correctly. If you can't see the video on mobile, ensure you are using HTTPS.
+
+Additionally, most mobile browsers block autoplay. If the video doesn't start, **click the play overlay** or ensure the page is unmuted.

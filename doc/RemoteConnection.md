@@ -1,4 +1,4 @@
-How to solve the remote conection problem:
+How to solve remote connection problems:
 
 ## Why STUN fails remotely
 
@@ -101,7 +101,9 @@ For a personal home surveillance system, **Tailscale** is probably the sweet spo
 If you want to go for option 3, Port Forwarding, **you must use HTTPS**. For this to work you must use the GUI to select your certificate and key files. If you use the server directly you have to use the `--ssl-cert` and `--ssl-key` arguments to the server:
 
 ```powershell
-python -m RemoteCameraMonitoring --ssl-cert \path\to\cert.pem --ssl-key \path\to\key.pem --password "yourpassword"
+remotecameraserver --ssl-cert \path\to\cert.pem --ssl-key \path\to\key.pem --password "yourpassword"
+# OR
+python -m RemoteCameraMonitoring.server --ssl-cert \path\to\cert.pem --ssl-key \path\to\key.pem --password "yourpassword"
 ```
 
 To generate these files, you have two options:
@@ -133,11 +135,11 @@ This produces:
 
 Then launch the server as:
 ```powershell
+remotecamera
+# OR
 python -m RemoteCameraMonitoring
-  --ssl-cert "C:\Certbot\live\mycam.ddns.net\fullchain.pem"
-  --ssl-key  "C:\Certbot\live\mycam.ddns.net\privkey.pem"
-  --password "yourpassword"
 ```
+(And select the certificate files in the GUI, or use `remotecameraserver` with `--ssl-cert` and `--ssl-key` arguments as shown above).
 
 ## IMPORTANT
 
