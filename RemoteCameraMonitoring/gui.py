@@ -12,12 +12,8 @@ import subprocess
 import threading
 import tkinter as tk
 import importlib.resources as pkg_resources
-from tkinter import scrolledtext, font, ttk, messagebox, filedialog
-try:
-    from .utils import list_camera_names, list_audio_input_names  # installed package
-except ImportError:
-    from utils import list_camera_names, list_audio_input_names    # plain script
 import webbrowser
+from tkinter import scrolledtext, font, ttk, messagebox, filedialog
 
 import platform
 PLATFORM = platform.system()
@@ -29,10 +25,14 @@ if PLATFORM == 'Windows':
 
 try:
     from . import server as srv   # installed package
+    from .utils import list_camera_names, list_audio_input_names
     from .config import load_config, save_config
+    from .password import hash_password
 except ImportError:
     import server as srv          # plain script
+    from utils import list_camera_names, list_audio_input_names
     from config import load_config, save_config
+    from password import hash_password
 
 # ── Colour palette (mirrors the web UI) ──────────────────────────────────────────────────────────────────────────────
 BG       = "#0a0c0e"
@@ -91,7 +91,8 @@ def _label(parent, text, row, col, colspan=1):
         row=row, column=col, columnspan=colspan, sticky="w", padx=(0, 8), pady=3)
 
 
-def _entry(parent, default, row, col, width=8, show='', sticky='w', colspan=1, validate='none', validate_cmd=''):
+def _entry(parent, default, row, col, width=8, show='', sticky='w', colspan=1, padx=(20, 20), validate='none',
+           validate_cmd=''):
     var = tk.StringVar(value=str(default))
     e = tk.Entry(
         parent, textvariable=var, width=width, show=show, justify=tk.CENTER,
@@ -99,7 +100,7 @@ def _entry(parent, default, row, col, width=8, show='', sticky='w', colspan=1, v
         highlightthickness=1, highlightbackground=BORDER, highlightcolor=GREEN,
         validate=validate, validatecommand=validate_cmd, # pyright: ignore[reportArgumentType]
     )
-    e.grid(row=row, column=col, columnspan=colspan, sticky=sticky, pady=3, padx=20)
+    e.grid(row=row, column=col, columnspan=colspan, sticky=sticky, pady=3, padx=padx)
     return var
 
 
@@ -202,6 +203,7 @@ class ServerLauncher(tk.Tk):
         self._reader = None          # background reader thread
 
         self._cfg = load_config()
+        self._hash_generated = False
 
         _generate_combobox_style(self)
         self._available_cameras = camera_list
@@ -255,8 +257,8 @@ class ServerLauncher(tk.Tk):
         f.columnconfigure(3, minsize=80)
 
         r = 0
-        # ── Camera ───────────────────────────────────────────────────────────────────────────────────────────────────
-        _section_label(f, "CAMERA", r); r += 2
+        # ── Camera and Network ───────────────────────────────────────────────────────────────────────────────────────
+        _section_label(f, "BASIC", r); r += 2
         _label(f, "Camera", r, 0)
         self._camera_selector = _combobox(f, self._available_cameras, r, 1); r += 1
         cfg_cam = self._cfg.get("camera_index", 0)
@@ -270,14 +272,30 @@ class ServerLauncher(tk.Tk):
         _label(f, "Height (px)", r, 2)
         self._height = _entry(f, self._cfg.get("stream_height", 720), r, 3, width=8); r += 1
         _label(f, "FPS", r, 0)
-        self._fps = _entry(f, self._cfg.get("stream_fps", 20), r, 1, width=8); r += 1
+        self._fps = _entry(f, self._cfg.get("stream_fps", 20), r, 1, width=8)
+        _label(f, "Net Port", r, 2)
+        self._port = _entry(f, self._cfg.get("flask_port", 8090), r, 3, width=8); r += 1
 
-        # ── Network ──────────────────────────────────────────────────────────────────────────────────────────────────
-        _section_label(f, "NETWORK", r); r += 2
-        _label(f, "Port", r, 0)
-        self._port = _entry(f, self._cfg.get("flask_port", 8090), r, 1, width=8)
-        _label(f, "Password", r, 2)
-        self._pwd = _entry(f, "", r, 3, width=14, show="●"); r += 1
+        # ── Security ─────────────────────────────────────────────────────────────────────────────────────────────────
+        _section_label(f, "SECURITY", r); r += 2
+
+        def _generate_hash():
+            if self._pwd.get().strip():
+                hash = hash_password(self._pwd.get().strip())
+                self._hash.set(hash)
+                self._hash_generated = True
+                self.clipboard_clear()
+                self.clipboard_append(hash)
+            else:
+                self._hash_generated = False
+
+        _label(f, "Password", r, 0)
+        self._pwd = _entry(f, "", r, 1, colspan=2, padx=(20, 0), sticky="we", show="●")
+        self._gen_hash_frame = tk.Frame(f, highlightbackground=DIM, highlightthickness=1, bd=0)
+        self._gen_hash_frame.grid(row=r, column=3, columnspan=1, sticky='we', pady=3, padx=20)
+        self._gen_hash_btn = tk.Button(self._gen_hash_frame, text="Generate Hash", command=_generate_hash, bg=PANEL, fg=DIM,
+                                        activebackground=BG, activeforeground=DIM, font=MONO, relief="flat", cursor="hand2", bd=0)
+        self._gen_hash_btn.pack(fill='both'); r += 1
         _label(f, "Hash", r, 0)
         env_hash = os.getenv(srv.PASSWORD_HASH_ENV, self._cfg.get("login_password_hash", ""))
         self._hash = _entry(f, env_hash, r, 1, colspan=3, sticky="we"); r += 1
@@ -309,7 +327,7 @@ class ServerLauncher(tk.Tk):
         self._btn_open_cert.pack()
         self._certificate_label = tk.Label(f, textvariable=self._ssl_cert_var, bg=PANEL, fg=DIM, font=MONO)
         self._certificate_label.grid(row=r, column=2, columnspan=2, sticky='we', pady=3, padx=(0, 20)); r += 1
-        
+
         self._open_key_frame = tk.Frame(f, highlightbackground=DIM, highlightthickness=1, bd=0)
         self._open_key_frame.grid(row=r, column=0, columnspan=2, sticky='w', pady=3, padx=20)
         self._btn_open_key = tk.Button(self._open_key_frame, text="Open key", command=lambda: _open_file_name("key"), bg=PANEL, fg=DIM, activebackground=BG,
@@ -425,12 +443,15 @@ class ServerLauncher(tk.Tk):
         pwd = self._pwd.get().strip()
         hash = self._hash.get().strip()
         # if the password is set, the user has just entered it, so prefer using it
-        if pwd:
+        # unless the hash was generated by the user
+        if self._hash_generated and hash:
+            cmd += ["--password-hash", hash]
+        elif pwd:
             cmd += ["--password", pwd]
         elif hash:
             cmd += ["--password-hash", hash]
         
-        # SSL checks
+        # HTTPS / SSL checks
         if self._has_ssl_cert and self._has_ssl_key:
             cmd += ["--ssl-cert", self._ssl_cert_file]
             cmd += ["--ssl-key", self._ssl_key_file]
