@@ -152,6 +152,26 @@
         #mute-btn:hover { background: rgba(255,255,255,.18); transform: scale(1.1); }
         #mute-btn.muted { border-color: var(--red); color: var(--red); }
 
+        #play-pause-btn {
+            position: absolute;
+            bottom: 18px;
+            right: 72px;
+            z-index: 10;
+            background: rgba(0,0,0,.55);
+            border: 1px solid rgba(255,255,255,.15);
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #fff;
+            transition: background .2s, transform .15s;
+            backdrop-filter: blur(4px);
+        }
+        #play-pause-btn:hover { background: rgba(255,255,255,.18); transform: scale(1.1); }
+
         /* ── UNMUTE NUDGE ── */
         #unmute-nudge {
             position: absolute;
@@ -413,11 +433,13 @@
 
             /* Bigger tap targets for overlay buttons */
             #mute-btn,
-            #fullscreen-btn {
+            #fullscreen-btn,
+            #play-pause-btn {
                 width: 52px;
                 height: 52px;
                 font-size: 1.5rem;
             }
+            #play-pause-btn { right: 80px; }
             /* Nudge hint repositioned so it doesn't overlap mute button */
             #unmute-nudge { bottom: 82px; }
 
@@ -470,6 +492,12 @@
                     <polyline points="11,1 15,1 15,5"/>
                     <polyline points="1,11 1,15 5,15"/>
                     <polyline points="15,11 15,15 11,15"/>
+                </svg>
+            </button>
+            <button id="play-pause-btn" title="Pause video">
+                <svg id="pp-icon" width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                    <rect x="3" y="2" width="3" height="12" />
+                    <rect x="10" y="2" width="3" height="12" />
                 </svg>
             </button>
             <button id="mute-btn" title="Toggle audio">🔊</button>
@@ -662,6 +690,7 @@
 
             // Hide the mute button — irrelevant in WebSocket mode
             document.getElementById('mute-btn').style.display = 'none';
+            document.getElementById('play-pause-btn').style.display = 'none';
             document.getElementById('unmute-nudge').style.display = 'none';
 
             // Dismiss the play overlay if it was showing
@@ -799,6 +828,31 @@
             const isFs = !!document.fullscreenElement;
             fsIcon.innerHTML = isFs ? ICON_COMPRESS : ICON_EXPAND;
             fsBtn.title = isFs ? 'Exit fullscreen' : 'Toggle fullscreen';
+        });
+
+        // ── Play/Pause toggle ─────────────────────────
+        const ppBtn = document.getElementById('play-pause-btn');
+        const ppIcon = document.getElementById('pp-icon');
+        
+        const ICON_PAUSE = `<rect x="3" y="2" width="3" height="12" />\n <rect x="10" y="2" width="3" height="12" />`;
+        const ICON_PLAY = `<polygon points="4,2 14,8 4,14" />`;
+        
+        ppBtn.addEventListener('click', () => {
+            if (video.paused) {
+                video.play();
+            } else {
+                video.pause();
+            }
+        });
+
+        video.addEventListener('play', () => {
+            ppIcon.innerHTML = ICON_PAUSE;
+            ppBtn.title = 'Pause video';
+        });
+
+        video.addEventListener('pause', () => {
+            ppIcon.innerHTML = ICON_PLAY;
+            ppBtn.title = 'Play video';
         });
 
         // ── Mute toggle ──────────────────────────────
