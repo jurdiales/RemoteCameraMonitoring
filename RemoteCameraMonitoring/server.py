@@ -33,40 +33,44 @@ import sounddevice as sd
 try:    # installed as package
     from .utils import list_cameras_opencv
     from .password import hash_password, verify_password
+    from .config import load_config
 except ImportError:     # running as plain script
     from utils import list_cameras_opencv
     from password import hash_password, verify_password
+    from config import load_config
+
+_cfg = load_config()
 
 # ─────────────────────────────────────────────
 #  SETTINGS
 # ─────────────────────────────────────────────
-CAMERA_INDEX        = 0             # 0 = main webcam, 1 = USB camera, etc. (depens on the system)
-STREAM_WIDTH        = 1280          # frame width (adjust this setting if your camera doesn't support this resolution)
-STREAM_HEIGHT       = 720           # frame height (adjust this setting if your camera doesn't support this resolution)
-STREAM_FPS          = 20            # stream fps
-FLASK_PORT          = 8090          # port for the web interface
+CAMERA_INDEX        = _cfg.get("camera_index", 0)                   # 0 = main webcam, 1 = USB camera, etc. (depens on the system)
+STREAM_WIDTH        = _cfg.get("stream_width", 1280)                # frame width (adjust this setting if your camera doesn't support this resolution)
+STREAM_HEIGHT       = _cfg.get("stream_height", 720)                # frame height (adjust this setting if your camera doesn't support this resolution)
+STREAM_FPS          = _cfg.get("stream_fps", 20)                    # stream fps
+FLASK_PORT          = _cfg.get("flask_port", 8090)                  # port for the web interface
 
 # Audio
-AUDIO_DEVICE_INDEX  = None          # None = system default mic; set to int to pick a specific device
-AUDIO_SAMPLE_RATE   = 48000         # Hz  (48 kHz is the WebRTC standard)
-AUDIO_CHANNELS      = 1             # 1 = mono, 2 = stereo
-AUDIO_CHUNK_FRAMES  = 960           # samples per chunk (20 ms at 48 kHz — matches Opus frame size)
+AUDIO_DEVICE_INDEX  = _cfg.get("audio_device_index", None)          # None = system default mic; set to int to pick a specific device
+AUDIO_SAMPLE_RATE   = _cfg.get("audio_sample_rate", 48000)          # Hz  (48 kHz is the WebRTC standard)
+AUDIO_CHANNELS      = _cfg.get("audio_channels", 1)                 # 1 = mono, 2 = stereo
+AUDIO_CHUNK_FRAMES  = _cfg.get("audio_chunk_frames", 960)           # samples per chunk (20 ms at 48 kHz — matches Opus frame size)
 
 # Motion detection
-ENABLE_MOTION_DET   = False         # enable motion detection
-MOTION_THRESHOLD    = 4000          # total pixel area to consider for motion detection
-MIN_CONTOUR_AREA    = 400           # minimum area of an individual contour to be taken into account
-RECORD_SECONDS      = 15            # seconds it continues recording after detecting motion
-BLUR_KERNEL         = (21, 21)      # smoothing to reduce false positives
-DILATION_KERNEL     = np.ones((5, 5), np.uint8)    # dilation to connect motion areas
+ENABLE_MOTION_DET   = _cfg.get("enable_motion_det", False)          # enable motion detection
+MOTION_THRESHOLD    = _cfg.get("motion_threshold", 4000)            # total pixel area to consider for motion detection
+MIN_CONTOUR_AREA    = _cfg.get("min_contour_area", 400)             # minimum area of an individual contour to be taken into account
+RECORD_SECONDS      = _cfg.get("record_seconds", 15)                # seconds it continues recording after detecting motion
+BLUR_KERNEL         = tuple(_cfg.get("blur_kernel", [21, 21]))      # smoothing to reduce false positives
+DILATION_KERNEL     = np.ones(tuple(_cfg.get("dilation_kernel", (5, 5))), np.uint8) # dilation to connect motion areas
 
 # Video recording
-ENABLE_RECORDINGS   = False             # enable recording
-RECORDINGS_DIR      = os.path.join(os.getcwd(), "recordings")  # stored relative to CWD at launch
-MAX_RECORDINGS      = 50                # maximum number of recordings to store
+ENABLE_RECORDINGS   = _cfg.get("enable_recordings", False)          # enable recording
+RECORDINGS_DIR      = os.path.join(os.getcwd(), "recordings")       # stored relative to CWD at launch
+MAX_RECORDINGS      = _cfg.get("max_recordings", 50)                # maximum number of recordings to store
 
 # Authentication
-LOGIN_PASSWORD_HASH = ""                # PBKDF2-SHA256 hashed password
+LOGIN_PASSWORD_HASH = _cfg.get("login_password_hash", "")           # PBKDF2-SHA256 hashed password
 PASSWORD_HASH_ENV   = "REMOTE_CAMERA_PASSWORD_HASH"
 # ─────────────────────────────────────────────
 

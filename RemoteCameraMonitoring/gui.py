@@ -29,8 +29,10 @@ if PLATFORM == 'Windows':
 
 try:
     from . import server as srv   # installed package
+    from .config import load_config, save_config
 except ImportError:
     import server as srv          # plain script
+    from config import load_config, save_config
 
 # ── Colour palette (mirrors the web UI) ──────────────────────────────────────────────────────────────────────────────
 BG       = "#0a0c0e"
@@ -199,11 +201,13 @@ class ServerLauncher(tk.Tk):
         self._q      = queue.Queue() # output lines from the server process
         self._reader = None          # background reader thread
 
+        self._cfg = load_config()
+
         _generate_combobox_style(self)
         self._available_cameras = camera_list
         self._available_audio_sources = audio_input_list
-        self._has_ssl_cert = False
-        self._has_ssl_key = False
+        self._has_ssl_cert = bool(self._cfg.get("ssl_cert"))
+        self._has_ssl_key = bool(self._cfg.get("ssl_key"))
         self._build_ui()
         self._poll_queue()           # start the periodic UI updater
     
@@ -255,29 +259,34 @@ class ServerLauncher(tk.Tk):
         _section_label(f, "CAMERA", r); r += 2
         _label(f, "Camera", r, 0)
         self._camera_selector = _combobox(f, self._available_cameras, r, 1); r += 1
+        cfg_cam = self._cfg.get("camera_index", 0)
+        for i, val in enumerate(self._available_cameras):
+            if val.startswith(f"{cfg_cam}:"):
+                self._camera_selector.current(i)
+                break
 
         _label(f, "Width (px)", r, 0)
-        self._width = _entry(f, srv.STREAM_WIDTH, r, 1, width=8)
+        self._width = _entry(f, self._cfg.get("stream_width", 1280), r, 1, width=8)
         _label(f, "Height (px)", r, 2)
-        self._height = _entry(f, srv.STREAM_HEIGHT, r, 3, width=8); r += 1
+        self._height = _entry(f, self._cfg.get("stream_height", 720), r, 3, width=8); r += 1
         _label(f, "FPS", r, 0)
-        self._fps = _entry(f, srv.STREAM_FPS, r, 1, width=8); r += 1
+        self._fps = _entry(f, self._cfg.get("stream_fps", 20), r, 1, width=8); r += 1
 
         # ── Network ──────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "NETWORK", r); r += 2
         _label(f, "Port", r, 0)
-        self._port = _entry(f, srv.FLASK_PORT, r, 1, width=8)
+        self._port = _entry(f, self._cfg.get("flask_port", 8090), r, 1, width=8)
         _label(f, "Password", r, 2)
         self._pwd = _entry(f, "", r, 3, width=14, show="●"); r += 1
         _label(f, "Hash", r, 0)
-        env_hash = os.getenv(srv.PASSWORD_HASH_ENV, "")
+        env_hash = os.getenv(srv.PASSWORD_HASH_ENV, self._cfg.get("login_password_hash", ""))
         self._hash = _entry(f, env_hash, r, 1, colspan=3, sticky="we"); r += 1
         _label(f, "Remote HTTPS / TLS configuration:", r, 0, colspan=4); r += 1
         
-        self._ssl_cert_file = ""
-        self._ssl_cert_var = tk.StringVar(value="No certificate file selected")
-        self._ssl_key_file = ""
-        self._ssl_key_var = tk.StringVar(value="No key file selected")
+        self._ssl_cert_file = self._cfg.get("ssl_cert", "")
+        self._ssl_cert_var = tk.StringVar(value=os.path.basename(self._ssl_cert_file) if self._ssl_cert_file else "No certificate file selected")
+        self._ssl_key_file = self._cfg.get("ssl_key", "")
+        self._ssl_key_var = tk.StringVar(value=os.path.basename(self._ssl_key_file) if self._ssl_key_file else "No key file selected")
         
         def _open_file_name(name: str):
             result = filedialog.askopenfilename(parent=self, title=f"Open {name} file", initialdir=_HERE, filetypes=(
@@ -300,6 +309,7 @@ class ServerLauncher(tk.Tk):
         self._btn_open_cert.pack()
         self._certificate_label = tk.Label(f, textvariable=self._ssl_cert_var, bg=PANEL, fg=DIM, font=MONO)
         self._certificate_label.grid(row=r, column=2, columnspan=2, sticky='we', pady=3, padx=(0, 20)); r += 1
+        
         self._open_key_frame = tk.Frame(f, highlightbackground=DIM, highlightthickness=1, bd=0)
         self._open_key_frame.grid(row=r, column=0, columnspan=2, sticky='w', pady=3, padx=20)
         self._btn_open_key = tk.Button(self._open_key_frame, text="Open key", command=lambda: _open_file_name("key"), bg=PANEL, fg=DIM, activebackground=BG,
@@ -312,11 +322,21 @@ class ServerLauncher(tk.Tk):
         _section_label(f, "AUDIO", r); r += 2
         _label(f, "Device", r, 0)
         self._audio_selector = _combobox(f, self._available_audio_sources, r, 1); r += 1
+        cfg_audio = self._cfg.get("audio_device_index", None)
+        if cfg_audio is None:
+            self._audio_selector.set(SYSTEM_DEFAULT)
+        elif cfg_audio == -1:
+            self._audio_selector.set("No audio")
+        else:
+            for i, val in enumerate(self._available_audio_sources):
+                if val.startswith(f"{cfg_audio}:"):
+                    self._audio_selector.current(i)
+                    break
 
         # ── Features ─────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "FEATURES", r); r += 2
-        self._motion = _check(f, "Enable motion detection", False, r, 0); r += 1
-        self._record = _check(f, "Enable recordings", False, r, 0); r += 1
+        self._motion = _check(f, "Enable motion detection", self._cfg.get("enable_motion_det", False), r, 0); r += 1
+        self._record = _check(f, "Enable recordings", self._cfg.get("enable_recordings", False), r, 0); r += 1
 
     def _build_controls(self, parent):
         frame = tk.Frame(parent, bg=BG)
@@ -421,7 +441,28 @@ class ServerLauncher(tk.Tk):
             cmd.append("--motion")
         if self._record.get():
             cmd.append("--record")
+            
+        # Save settings for next time
+        self._save_settings(camera_index, audio_index)
+            
         return cmd
+
+    def _save_settings(self, camera_index, audio_index):
+        try:
+            self._cfg["camera_index"] = int(camera_index)
+            self._cfg["audio_device_index"] = int(audio_index) if audio_index is not None and audio_index != "-1" else (None if audio_index is None else -1)
+            self._cfg["stream_width"] = int(self._width.get())
+            self._cfg["stream_height"] = int(self._height.get())
+            self._cfg["stream_fps"] = int(self._fps.get())
+            self._cfg["flask_port"] = int(self._port.get())
+            self._cfg["login_password_hash"] = self._hash.get().strip()
+            self._cfg["ssl_cert"] = self._ssl_cert_file
+            self._cfg["ssl_key"] = self._ssl_key_file
+            self._cfg["enable_motion_det"] = self._motion.get()
+            self._cfg["enable_recordings"] = self._record.get()
+            save_config(self._cfg)
+        except Exception as e:
+            self._log(f"Error saving config: {e}\n", "err")
 
     def _start(self):
         cmd = self._build_cmd()
