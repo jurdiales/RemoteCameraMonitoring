@@ -92,6 +92,11 @@ _is_recording     = False
 _last_motion_ts   = None
 _event_log        = []              # list of dict {time, type}
 _stats            = {"total_events": 0, "start_time": datetime.datetime.now()}
+_active_viewers   = 0
+
+def is_camera_needed():
+    with _lock:
+        return ENABLE_MOTION_DET or (_active_viewers > 0) or (len(_pcs) > 0)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -120,16 +125,36 @@ def _open_camera(index: int) -> cv2.VideoCapture:
 def camera_worker():
     global _current_frame, _motion_active, _is_recording, _last_motion_ts
 
-    cap = _open_camera(CAMERA_INDEX)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, STREAM_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, STREAM_HEIGHT)
-    cap.set(cv2.CAP_PROP_FPS, STREAM_FPS)
-
+    cap = None
     prev_gray = None
     video_writer = None
     record_until = None
 
     while True:
+        needed = is_camera_needed()
+        
+        if not needed:
+            if cap is not None:
+                cap.release()
+                cap = None
+                with _lock:
+                    _current_frame = None  # clear last frame
+            time.sleep(0.2)
+            continue
+            
+        if cap is None:
+            cap = _open_camera(CAMERA_INDEX)
+            if cap is not None and cap.isOpened():
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, STREAM_WIDTH)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, STREAM_HEIGHT)
+                cap.set(cv2.CAP_PROP_FPS, STREAM_FPS)
+            else:
+                if cap is not None:
+                    cap.release()
+                cap = None
+                time.sleep(1.0)
+                continue
+
         ret, frame = cap.read()
         if not ret:
             time.sleep(0.05)
@@ -215,7 +240,8 @@ def camera_worker():
 
         time.sleep(1 / STREAM_FPS)
 
-    cap.release()
+    if cap is not None:
+        cap.release()
 
 
 def _draw_overlay(frame, ts, motion, recording):
@@ -409,9 +435,21 @@ async def _handle_offer(data):
             await pc.close()
             _pcs.discard(pc)
 
+    # Wait up to 5 seconds for the camera hardware to initialize before trying to lock the audio device
+    deadline_cam = _aiortc_loop.time() + 5.0
+    while _aiortc_loop.time() < deadline_cam:
+        with _lock:
+            if _current_frame is not None:
+                break
+        await asyncio.sleep(0.1)
+
     pc.addTrack(CameraVideoTrack())
     if (AUDIO_DEVICE_INDEX is None) or (AUDIO_DEVICE_INDEX >= 0):
-        pc.addTrack(MicrophoneAudioTrack())
+        try:
+            pc.addTrack(MicrophoneAudioTrack())
+        except Exception as e:
+            print(f"Warning: Failed to open microphone: {e}")
+            
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
@@ -433,23 +471,30 @@ def _run_coroutine(coro):
 #  MJPEG STREAM GENERATOR
 # ══════════════════════════════════════════════════════════════
 def _mjpeg_generator():
-    while True:
+    global _active_viewers
+    with _lock:
+        _active_viewers += 1
+    try:
+        while True:
+            with _lock:
+                frame = _current_frame
+
+            if frame is None:
+                time.sleep(0.05)
+                continue
+
+            ret, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
+            if not ret:
+                continue
+
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
+            )
+            time.sleep(1 / STREAM_FPS)
+    finally:
         with _lock:
-            frame = _current_frame
-
-        if frame is None:
-            time.sleep(0.05)
-            continue
-
-        ret, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
-        if not ret:
-            continue
-
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
-        )
-        time.sleep(1 / STREAM_FPS)
+            _active_viewers -= 1
 
 
 # ══════════════════════════════════════════════════════════════
@@ -512,6 +557,7 @@ def stream():
 
 @sock.route("/ws/stream")
 def ws_stream(ws):
+    global _active_viewers
     """WebSocket endpoint that pushes JPEG frames as binary messages.
 
     The client receives binary ArrayBuffers and renders them as
@@ -522,6 +568,9 @@ def ws_stream(ws):
     # Auth check — session is available during the HTTP upgrade handshake
     if LOGIN_PASSWORD_HASH and not session.get("authenticated"):
         return  # flask-sock closes the connection on function return
+
+    with _lock:
+        _active_viewers += 1
 
     try:
         while True:
@@ -539,6 +588,9 @@ def ws_stream(ws):
             time.sleep(1 / STREAM_FPS)
     except Exception:
         pass  # Client disconnected — exit the loop cleanly
+    finally:
+        with _lock:
+            _active_viewers -= 1
 
 
 @app.route("/offer", methods=["POST"])
