@@ -25,6 +25,9 @@ from functools import wraps
 import socket
 import subprocess
 import atexit
+import socket
+import subprocess
+import atexit
 
 import cv2
 from flask import Flask, Response, jsonify, render_template, request, session, redirect
@@ -44,7 +47,7 @@ except ImportError:     # running as plain script
     from config import load_config
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_PARENT = pathlib.Path(_HERE).parent.absolute().as_posix()
+_PARENT = os.path.abspath(os.path.join(_HERE, os.pardir))
 _cfg = load_config()
 
 def get_local_ip():
