@@ -108,18 +108,32 @@ python -m RemoteCameraMonitoring.server --password "MySecurePassword123"
 
 ### HTTPS / TLS Support (Remote Access)
 
-To run the server over HTTPS, needed for correct remote access, provide a certificate and private key:
+To stream video and audio remotely, modern mobile and desktop browsers **require** a **Secure Context (HTTPS)** to allow WebRTC connections. You have two ways to configure HTTPS:
+
+#### Option 1: Automatic HTTPS with Caddy (Recommended & Easiest)
+**Caddy** is a modern, lightweight web server that automatically provisions and renews TLS/SSL certificates. We use Caddy to act as a secure reverse proxy in front of our Flask server, meaning you get fully secure local network HTTPS without managing certificates!
+
+1. **Download Caddy**: Download the `caddy.exe` binary for your OS from the [official Caddy download page](https://caddyserver.com/download).
+2. **Place in Resources**: Put `caddy.exe` inside the `resources/` folder in your project (`D:\Code\RemoteCameraMonitoring\resources\caddy.exe`).
+3. **Enable via GUI**: Open `python gui.py`, check the **Enable HTTPS with Caddy** checkbox under **FEATURES**, and click **START SERVER**.
+4. **Access your server**: The application will automatically launch and manage Caddy. You can now access your stream securely at:
+   - `https://localhost` (locally)
+   - `https://<your-local-ip>` (from other devices on your home network)
+
+*Note: Caddy uses an internal certificate authority. On your first visit, your browser might show a certificate warning. You can safely bypass this or install Caddy's root certificate on your device to make it fully trusted.*
+
+#### Option 2: Manual SSL Certificates
+If you prefer not to use Caddy, you can provide your own certificate and private key files directly:
 
 ```bash
 python -m RemoteCameraMonitoring.server --ssl-cert /path/to/cert.pem --ssl-key /path/to/key.pem
 ```
 
-**Self-signed certificate example:**
+**Generating a self-signed certificate:**
 ```bash
 openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
 ```
-
-Then access the server at `https://localhost:8090` (accept the browser warning for self-signed certs).
+Then access the server at `https://localhost:8090` (and accept the browser warning).
 
 ### Security Best Practices
 

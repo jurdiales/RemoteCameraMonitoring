@@ -208,13 +208,15 @@ class ServerLauncher(tk.Tk):
         _generate_combobox_style(self)
         self._available_cameras = camera_list
         self._available_audio_sources = audio_input_list
-        self._has_ssl_cert = bool(self._cfg.get("ssl_cert"))
-        self._has_ssl_key = bool(self._cfg.get("ssl_key"))
+        self._has_ssl_cert = bool(self._cfg.get("ssl_cert", ""))
+        self._has_ssl_key = bool(self._cfg.get("ssl_key", ""))
         self._build_ui()
         self._poll_queue()           # start the periodic UI updater
     
     def _open_web_interface(self):
-        if self._has_ssl_cert and self._has_ssl_key:
+        if self._caddy.get():
+            webbrowser.open(f"https://localhost")
+        elif self._has_ssl_cert and self._has_ssl_key:
             webbrowser.open(f"https://localhost:{self._port.get()}")
         else:
             webbrowser.open(f"http://localhost:{self._port.get()}")
@@ -302,14 +304,21 @@ class ServerLauncher(tk.Tk):
         _label(f, "Remote HTTPS / TLS configuration:", r, 0, colspan=4); r += 1
         
         self._ssl_cert_file = self._cfg.get("ssl_cert", "")
+        if not os.path.exists(self._ssl_cert_file):
+            self._ssl_cert_file = ""
+            self._has_ssl_cert = False
         self._ssl_cert_var = tk.StringVar(value=os.path.basename(self._ssl_cert_file) if self._ssl_cert_file else "No certificate file selected")
         self._ssl_key_file = self._cfg.get("ssl_key", "")
+        if not os.path.exists(self._ssl_key_file):
+            self._ssl_key_file = ""
+            self._has_ssl_key = False
         self._ssl_key_var = tk.StringVar(value=os.path.basename(self._ssl_key_file) if self._ssl_key_file else "No key file selected")
         
         def _open_file_name(name: str):
             result = filedialog.askopenfilename(parent=self, title=f"Open {name} file", initialdir=_HERE, filetypes=(
                 ("SSL/TLS Certificates", "*.pem"), ("All files", "*.*")
             ))
+            # check selected file validity
             if (len(result) > 0) and (result.split('.')[-1] == "pem"):
                 if name == "certificate":
                     self._ssl_cert_file = result
@@ -353,7 +362,8 @@ class ServerLauncher(tk.Tk):
 
         # ── Features ─────────────────────────────────────────────────────────────────────────────────────────────────
         _section_label(f, "FEATURES", r); r += 2
-        self._motion = _check(f, "Enable motion detection", self._cfg.get("enable_motion_det", False), r, 0); r += 1
+        self._motion = _check(f, "Enable motion detection", self._cfg.get("enable_motion_det", False), r, 0)
+        self._caddy = _check(f, "Enable HTTPS with Caddy", self._cfg.get("use_caddy", False), r, 2); r += 1
         self._record = _check(f, "Enable recordings", self._cfg.get("enable_recordings", False), r, 0); r += 1
 
     def _build_controls(self, parent):
@@ -455,13 +465,23 @@ class ServerLauncher(tk.Tk):
         if self._has_ssl_cert and self._has_ssl_key:
             cmd += ["--ssl-cert", self._ssl_cert_file]
             cmd += ["--ssl-key", self._ssl_key_file]
-        else:
-            self._log("No HTTPS connection will be available. Remote connections may not work\n", "warn")
+        elif not self._caddy.get():
+            self._log("No HTTPS connection will be available. Remote connections may not work on some devices\n", "warn")
 
         if self._motion.get():
             cmd.append("--motion")
         if self._record.get():
             cmd.append("--record")
+        
+        # check caddy executable if enabled
+        if self._caddy.get():
+            parent = os.path.abspath(os.path.join(_HERE, os.pardir))
+            caddy_file = os.path.join(parent, "resources", "caddy.exe")
+            if not os.path.exists(self._cfg["caddy_exe"]):
+                messagebox.showerror("Error", f"Caddy executable not found in path:\n"
+                                              f"{self._cfg["caddy_exe"]}\n"
+                                              f"Please download it and place it in this folder.")
+                return None
             
         # Save settings for next time
         self._save_settings(camera_index, audio_index)
@@ -481,6 +501,8 @@ class ServerLauncher(tk.Tk):
             self._cfg["ssl_key"] = self._ssl_key_file
             self._cfg["enable_motion_det"] = self._motion.get()
             self._cfg["enable_recordings"] = self._record.get()
+            self._cfg["use_caddy"] = self._caddy.get()
+            # TODO select a path for Caddy executable and store it in config
             save_config(self._cfg)
         except Exception as e:
             self._log(f"Error saving config: {e}\n", "err")
@@ -519,7 +541,16 @@ class ServerLauncher(tk.Tk):
     def _stop(self):
         terminated = False
         if self._proc:
-            self._proc.terminate()
+            if PLATFORM == "Windows":
+                # Kill the process and all its children (e.g. caddy.exe) using taskkill
+                try:
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    self._proc.terminate()
+            else:
+                self._proc.terminate()
+                
             try:
                 self._proc.wait(timeout=2)
             except subprocess.TimeoutExpired:

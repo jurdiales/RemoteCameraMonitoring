@@ -8,6 +8,7 @@ Local Access: http://localhost:port
 Remote Access: http://<public-ip>:port
 """
 
+import pathlib
 import threading
 import time
 import datetime
@@ -21,6 +22,9 @@ import ssl
 import platform
 import importlib.resources as pkg_resources
 from functools import wraps
+import socket
+import subprocess
+import atexit
 
 import cv2
 from flask import Flask, Response, jsonify, render_template, request, session, redirect
@@ -39,7 +43,21 @@ except ImportError:     # running as plain script
     from password import hash_password, verify_password
     from config import load_config
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_PARENT = pathlib.Path(_HERE).parent.absolute().as_posix()
 _cfg = load_config()
+
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # Doesn't even have to be reachable
+        s.connect(('10.255.255.255', 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        s.close()
+    return IP
 
 # ─────────────────────────────────────────────
 #  SETTINGS
@@ -93,6 +111,21 @@ _last_motion_ts   = None
 _event_log        = []              # list of dict {time, type}
 _stats            = {"total_events": 0, "start_time": datetime.datetime.now()}
 _active_viewers   = 0
+_caddy_proc       = None
+
+def _cleanup_caddy():
+    global _caddy_proc
+    if _caddy_proc:
+        try:
+            _caddy_proc.terminate()
+            _caddy_proc.wait(timeout=2)
+        except Exception:
+            try:
+                _caddy_proc.kill()
+            except Exception:
+                pass
+
+atexit.register(_cleanup_caddy)
 
 def is_camera_needed():
     with _lock:
@@ -534,7 +567,7 @@ def logout():
 
 
 # ══════════════════════════════════════════════════════════════
-#  RUTAS FLASK
+#  FLASK ROUTES
 # ══════════════════════════════════════════════════════════════
 @app.route("/")
 @require_auth
@@ -696,7 +729,8 @@ def main():
         parser.error("Both --ssl-cert and --ssl-key are required to enable HTTPS")
 
     ssl_context = None
-    if args.ssl_cert and args.ssl_key:
+    use_caddy = _cfg.get("use_caddy", False)
+    if not use_caddy and args.ssl_cert and args.ssl_key:
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(args.ssl_cert, args.ssl_key)
 
@@ -709,7 +743,7 @@ def main():
         _auth_label = "enabled (hashed password configured)"
     else:
         _auth_label = "DISABLED (no password set)"
-    _https_label = f"https://localhost:{FLASK_PORT}" if ssl_context else f"http://localhost:{FLASK_PORT}"
+    _https_label = f"https://localhost" if use_caddy else f"https://localhost:{FLASK_PORT}" if ssl_context else f"http://localhost:{FLASK_PORT}"
 
     print("=" * 55)
     print("  Remote Camera Monitoring System")
@@ -722,6 +756,43 @@ def main():
     print(f"  Local access:  {_https_label}")
     print("  Remote access: see SETUP.md")
     print("=" * 55)
+
+    if use_caddy:
+        local_ip = get_local_ip()
+        caddyfile_path = os.path.join(_PARENT, "resources", "Caddyfile")
+        caddy_content = f"""localhost {{
+    reverse_proxy localhost:{FLASK_PORT}
+}}
+
+# local network IP
+{local_ip} {{
+    tls internal
+    reverse_proxy localhost:{FLASK_PORT}
+}}
+"""
+        with open(caddyfile_path, "w") as f:
+            f.write(caddy_content)
+            
+        print(f"[*] Starting Caddy server for https://localhost and https://{local_ip}...")
+        success = False
+        try:
+            caddy_exe = _cfg.get("caddy_exe", "")
+            if os.path.exists(caddy_exe):
+                global _caddy_proc
+                _caddy_proc = subprocess.Popen([caddy_exe, "run"], cwd=os.path.dirname(caddy_exe))
+                success = True
+            else:
+                print("[!] caddy.exe not found. Please download it and place it in this folder.")
+        except Exception as e:
+            print(f"[!] Failed to start Caddy: {e}")
+        
+        if not success:
+            if args.ssl_cert and args.ssl_key:
+                ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ssl_context.load_cert_chain(args.ssl_cert, args.ssl_key)
+                print("[!] WARNING: Using SSL context without Caddy.")
+            else:
+                print("[!] WARNING: No SSL context will be available.")
 
     t = threading.Thread(target=camera_worker, daemon=True)
     t.start()

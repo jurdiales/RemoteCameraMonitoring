@@ -143,7 +143,30 @@ If your public IP changes, you need a DDNS service to give you a fixed name.
 
 ---
 
-## 6. Open the port in Windows Firewall
+## 6. HTTPS & Secure Context with Caddy (Highly Recommended)
+
+Modern web browsers (specifically Chrome, Safari, and Edge on mobile devices) strictly enforce a **Secure Context** rule for WebRTC. This means **video and audio streams will not load on your phone/tablet unless the connection is encrypted with HTTPS**.
+
+To make this simple, our application includes built-in support for **Caddy**, a modern, lightweight web server that handles secure HTTPS connections and local certificates completely automatically.
+
+### Why use Caddy?
+* **Zero Configuration**: No complex SSL setup or manual Let's Encrypt renewal.
+* **Automatic HTTPS**: It automatically handles secure HTTPS routing to the Flask server.
+* **Local Trust**: It automatically provisions locally trusted TLS/SSL certificates for both your local computer (`https://localhost`) and your local network IP (e.g. `https://192.168.1.105`), allowing secure mobile connections.
+
+### Setup and How to Use:
+1. **Download Caddy**: Download the `caddy.exe` binary for your OS from the [official Caddy website](https://caddyserver.com/download).
+2. **Copy Caddy**: Place the downloaded `caddy.exe` inside the project's `resources` directory (e.g., `D:\Code\RemoteCameraMonitoring\resources\caddy.exe`).
+3. **Enable in Launcher**: Run the launcher (`python gui.py`), check the **Enable HTTPS with Caddy** checkbox under **FEATURES**, and click the green **▶ START SERVER** button.
+4. **Accessing the stream**:
+   - On the host laptop: Open browser to `https://localhost`
+   - On other home network devices (e.g., phone): Open browser to `https://<your-local-ip>` (the application will display the network IP in the printout logs).
+
+*Note: The first time you access the HTTPS site from your mobile phone or browser, it may show a certificate warning because Caddy uses an internal certificate authority. It is completely safe to click **Advanced** and **Proceed** to access your secure stream.*
+
+---
+
+## 7. Open the port in Windows Firewall
 
 If external access doesn't work, the firewall might be blocking it:
 
@@ -157,7 +180,7 @@ If external access doesn't work, the firewall might be blocking it:
 
 ---
 
-## 7. Automatic startup with Windows
+## 8. Automatic startup with Windows
 
 For the server to start automatically when you turn on the laptop:
 
@@ -172,7 +195,7 @@ For the server to start automatically when you turn on the laptop:
 
 *(Note: When using the GUI you will have to press "START SERVER" manually each time. If you prefer the server to start directly without an interface, you can use the headless command in your batch file: `remotecameraserver` or `python -m RemoteCameraMonitoring.server` followed by your desired arguments)*
 
-## 8. Console arguments
+## 9. Console arguments
 
 | Argument | Meaning |
 | -------------------- | -------------------- |
@@ -193,7 +216,7 @@ For the server to start automatically when you turn on the laptop:
 
 ---
 
-## 9. Advanced Settings
+## 10. Advanced Settings
 
 Thanks to the new graphical interface (`gui.py`), most settings are configured from the Launcher:
 - **Camera and Audio**: Detected automatically; you can select them from the dropdown list.
@@ -205,7 +228,7 @@ For additional internal options (motion sensitivity, recording duration, etc.), 
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Problem                         | Solution                                              |
 |---------------------------------|-------------------------------------------------------|

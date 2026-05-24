@@ -106,9 +106,20 @@ remotecameraserver --ssl-cert \path\to\cert.pem --ssl-key \path\to\key.pem --pas
 python -m RemoteCameraMonitoring.server --ssl-cert \path\to\cert.pem --ssl-key \path\to\key.pem --password "yourpassword"
 ```
 
-To generate these files, you have two options:
+To secure your connection for WebRTC, you have three options:
 
-### 1. Generate your own certificate:
+### 1. Automatic HTTPS with Caddy (Recommended & Easiest)
+Caddy acts as a secure reverse proxy directly in front of the Flask application, automating SSL/TLS certificate creation and handling the secure context completely in the background without needing any external tools.
+
+* **How it works:**
+  1. Download the `caddy.exe` binary for your platform from the [official Caddy downloads](https://caddyserver.com/download).
+  2. Put `caddy.exe` in the project's `resources/` folder (`D:\Code\RemoteCameraMonitoring\resources\caddy.exe`).
+  3. In the GUI launcher (`gui.py`), simply check **Enable HTTPS with Caddy** and start the server.
+  4. The application automatically generates a `Caddyfile` mapping your local host and network IP, starts Caddy, and forwards secure traffic back to Flask.
+* **Access URL:** Access your secure server at `https://localhost` (locally) or `https://<local-network-ip>` (remotely over your home network).
+* **Certificate trust:** Caddy uses its own internal certificate authority. Browsers will show a warning on first load, which is expected and completely safe to bypass by clicking "Advanced" and "Proceed".
+
+### 2. Generate your own certificate manually:
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
@@ -116,7 +127,7 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -node
 
 Then access the server at `https://localhost:8090` (accept the browser warning for self-signed certs).
 
-### 2. Let's Encrypt (free, trusted cert, recommended):
+### 3. Let's Encrypt (free, trusted cert, for custom domains):
 
 If you have a DDNS hostname, you can get a free certificate from Let's Encrypt using Certbot:
 
@@ -133,13 +144,10 @@ This produces:
 > [!NOTE]
 > Certbot needs port **80** open briefly for the HTTP-01 challenge. You can close it again afterwards. Renew every 90 days with `certbot renew`.
 
-Then launch the server as:
+Then launch the server and select the certificate files manually in the GUI, or start the headless server as:
 ```powershell
-remotecamera
-# OR
-python -m RemoteCameraMonitoring
+remotecameraserver --ssl-cert C:\Certbot\live\mycam.ddns.net\fullchain.pem --ssl-key C:\Certbot\live\mycam.ddns.net\privkey.pem --password "yourpassword"
 ```
-(And select the certificate files in the GUI, or use `remotecameraserver` with `--ssl-cert` and `--ssl-key` arguments as shown above).
 
 ## IMPORTANT
 

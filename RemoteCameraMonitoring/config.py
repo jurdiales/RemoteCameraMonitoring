@@ -2,6 +2,8 @@ import json
 import os
 
 CONFIG_FILE = "config.json"
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_PARENT = os.path.abspath(os.path.join(_HERE, os.pardir))
 
 DEFAULT_CONFIG = {
     # camera
@@ -28,7 +30,9 @@ DEFAULT_CONFIG = {
     # authentication
     "login_password_hash": "",
     "ssl_cert": "",
-    "ssl_key": ""
+    "ssl_key": "",
+    "use_caddy": False,
+    "caddy_exe": os.path.join(_PARENT, "resources", "caddy.exe")
 }
 
 def load_config():
