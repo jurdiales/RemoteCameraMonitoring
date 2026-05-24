@@ -88,11 +88,11 @@ ApplicationWindow {
                     width: 12
                     height: 12
                     radius: 6
-                    color: backend.statusColor
-                    
+                    color: backend ? backend.statusColor : "#4a5060"
+
                     // Subtle breathing/pulsing animation when running
                     SequentialAnimation on opacity {
-                        running: backend.isRunning
+                        running: backend ? backend.isRunning : false
                         loops: Animation.Infinite
                         PropertyAnimation { to: 0.4; duration: 800; easing.type: Easing.InOutQuad }
                         PropertyAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
@@ -100,10 +100,10 @@ ApplicationWindow {
                 }
 
                 Text {
-                    text: backend.statusText.toUpperCase()
+                    text: backend ? backend.statusText.toUpperCase() : ""
                     font.bold: true
                     font.pixelSize: 11
-                    color: backend.statusColor
+                    color: backend ? backend.statusColor : "#4a5060"
                 }
             }
 
@@ -331,13 +331,13 @@ ApplicationWindow {
 
                         StyledButton {
                             id: runBtn
-                            text: backend.isRunning ? "■   STOP SERVER" : "▶   START SERVER"
+                            text: (backend && backend.isRunning) ? "■   STOP SERVER" : "▶   START SERVER"
                             font.bold: true
                             Layout.fillWidth: true
                             Layout.preferredHeight: 45
-                            customBgColor: backend.isRunning ? "#ff3d3d" : "#00e676"
+                            customBgColor: (backend && backend.isRunning) ? "#ff3d3d" : "#00e676"
                             customTextColor: "#0a0c0e"
-                            
+
                             // Glowing pulsing effect on start button
                             Rectangle {
                                 anchors.fill: parent
@@ -346,7 +346,7 @@ ApplicationWindow {
                                 opacity: 0.15
                                 scale: 1.04
                                 z: -1
-                                visible: !backend.isRunning
+                                visible: backend ? !backend.isRunning : true
                                 SequentialAnimation on opacity {
                                     loops: Animation.Infinite
                                     PropertyAnimation { to: 0.02; duration: 1200; easing.type: Easing.InOutQuad }

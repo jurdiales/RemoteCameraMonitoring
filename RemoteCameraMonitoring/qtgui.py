@@ -459,6 +459,19 @@ class ServerBackend(QObject):
             return
 
         self.logReceived.emit("[GUI] Stopping server process...\n", "warn")
+
+        # Disconnect finished BEFORE killing so _on_process_finished never fires
+        # after a manual stop.  This also prevents the exit-code-1 log entry that
+        # comes from taskkill's forced termination.
+        try:
+            self._process.finished.disconnect(self._on_process_finished)
+        except RuntimeError:
+            pass  # already disconnected
+        try:
+            self._process.readyReadStandardOutput.disconnect(self._read_output)
+        except RuntimeError:
+            pass
+
         if PLATFORM == "Windows":
             try:
                 # Forcefully kill the process tree (including Caddy subprocesses)
@@ -474,6 +487,7 @@ class ServerBackend(QObject):
             self._process.waitForFinished(1000)
 
         self._set_stopped()
+        self.logReceived.emit("\u2014 Server stopped —\n", "warn")
 
     def _set_stopped(self, text="Stopped", color="#4a5060"):
         self._is_running = False
@@ -498,27 +512,33 @@ class ServerBackend(QObject):
             self.logReceived.emit(line, tag)
 
     def _on_process_finished(self, exit_code, exit_status):
-        self.logReceived.emit(f"— Server process finished (Exit code: {exit_code}) —\n", "warn")
+        # Only reached when the server exits on its own (not via stopServer).
+        # stopServer() disconnects this signal before killing the process, so
+        # we will never see a forced-kill exit code here.
+        self.logReceived.emit("\u2014 Server process exited \u2014\n", "warn")
         self._set_stopped()
 
 def main():
     app = QApplication(sys.argv)
-    
-    backend = ServerBackend()
-    
-    engine = QQmlApplicationEngine()
-    engine.rootContext().setContextProperty("backend", backend)
-    
+
+    # Attach backend and engine to the app object so Python's GC cannot collect
+    # them before QML teardown completes.  Local variables in main() are eligible
+    # for collection as soon as app.exec() returns, which is too early — QML
+    # bindings can still fire during engine shutdown and would see backend=null.
+    app.backend = ServerBackend()
+    app.engine  = QQmlApplicationEngine()
+    app.engine.rootContext().setContextProperty("backend", app.backend)
+
     qml_file = os.path.join(_HERE, "resources", "main.qml")
-    engine.load(qml_file)
-    
-    if not engine.rootObjects():
+    app.engine.load(qml_file)
+
+    if not app.engine.rootObjects():
         sys.exit(-1)
-        
-    # Wire window close events to graceful shutdown
-    root_window = engine.rootObjects()[0]
-    root_window.closing.connect(backend.stopServer)
-    
+
+    # Graceful shutdown: stop the server subprocess when the window is closed.
+    root_window = app.engine.rootObjects()[0]
+    root_window.closing.connect(app.backend.stopServer)
+
     sys.exit(app.exec())
 
 if __name__ == "__main__":
