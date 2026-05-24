@@ -8,7 +8,6 @@ Local Access: http://localhost:port
 Remote Access: http://<public-ip>:port
 """
 
-import pathlib
 import threading
 import time
 import datetime

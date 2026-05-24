@@ -35,12 +35,14 @@ setup(
         "av>=12.0.0",
         "sounddevice>=0.4.6",
         'pygrabber>=0.2; sys_platform == "win32"',
+        "PySide6>=6.0.0",
     ],
     python_requires=">=3.10",
     entry_points={
         "console_scripts": [
             "remotecameraserver = RemoteCameraMonitoring.__main__:server",
             "remotecamera = RemoteCameraMonitoring.__main__:main",
+            "remotecamera-legacy = RemoteCameraMonitoring.__main__:legacy",
         ],
     },
     classifiers=[
