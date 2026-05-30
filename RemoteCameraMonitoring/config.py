@@ -52,5 +52,10 @@ def save_config(config):
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=4)
+        # Restrict permissions to owner-only (contains password hash)
+        try:
+            os.chmod(CONFIG_FILE, 0o600)
+        except OSError:
+            pass  # Windows or restricted filesystem — best-effort
     except Exception as e:
         print(f"Error saving config file: {e}")

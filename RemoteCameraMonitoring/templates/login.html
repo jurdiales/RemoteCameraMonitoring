@@ -46,6 +46,7 @@
 </head>
 <body>
     <form class="card" method="post">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="logo">RemoteCamera <span>// ACCESS</span></div>
         <div>
             <label for="pwd">Password</label>

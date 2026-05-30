@@ -24,9 +24,8 @@ from functools import wraps
 import socket
 import subprocess
 import atexit
-import socket
-import subprocess
-import atexit
+import collections
+import logging
 
 import cv2
 from flask import Flask, Response, jsonify, render_template, request, session, redirect
@@ -101,7 +100,21 @@ except ModuleNotFoundError:
     _TEMPLATES_DIR = "templates"
 app = Flask(__name__, template_folder=_TEMPLATES_DIR)
 app.secret_key = secrets.token_hex(32)  # random per-run; all sessions are invalidated on restart
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Strict",
+)
 sock = Sock(app)  # WebSocket support (fallback stream)
+
+# ── CSRF token generation ──
+@app.context_processor
+def _inject_csrf():
+    """Make csrf_token() available in all templates."""
+    def csrf_token():
+        if "_csrf_token" not in session:
+            session["_csrf_token"] = secrets.token_hex(32)
+        return session["_csrf_token"]
+    return {"csrf_token": csrf_token}
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 # Global status shared between threads
@@ -110,7 +123,7 @@ _current_frame    = None
 _motion_active    = False
 _is_recording     = False
 _last_motion_ts   = None
-_event_log        = []              # list of dict {time, type}
+_event_log        = collections.deque(maxlen=100)  # deque of dict {time, type}
 _stats            = {"total_events": 0, "start_time": datetime.datetime.now()}
 _active_viewers   = 0
 _caddy_proc       = None
@@ -160,123 +173,135 @@ def _open_camera(index: int) -> cv2.VideoCapture:
 def camera_worker():
     global _current_frame, _motion_active, _is_recording, _last_motion_ts
 
+    logger = logging.getLogger(__name__)
     cap = None
     prev_gray = None
     video_writer = None
     record_until = None
 
     while True:
-        needed = is_camera_needed()
-        
-        if not needed:
-            if cap is not None:
-                cap.release()
-                cap = None
-                with _lock:
-                    _current_frame = None  # clear last frame
-            time.sleep(0.2)
-            continue
+        try:
+            needed = is_camera_needed()
             
-        if cap is None:
-            cap = _open_camera(CAMERA_INDEX)
-            if cap is not None and cap.isOpened():
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, STREAM_WIDTH)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, STREAM_HEIGHT)
-                cap.set(cv2.CAP_PROP_FPS, STREAM_FPS)
-            else:
+            if not needed:
                 if cap is not None:
                     cap.release()
-                cap = None
-                time.sleep(1.0)
+                    cap = None
+                    with _lock:
+                        _current_frame = None  # clear last frame
+                time.sleep(0.2)
+                continue
+                
+            if cap is None:
+                cap = _open_camera(CAMERA_INDEX)
+                if cap is not None and cap.isOpened():
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, STREAM_WIDTH)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, STREAM_HEIGHT)
+                    cap.set(cv2.CAP_PROP_FPS, STREAM_FPS)
+                else:
+                    if cap is not None:
+                        cap.release()
+                    cap = None
+                    time.sleep(1.0)
+                    continue
+
+            ret, frame = cap.read()
+            if not ret:
+                time.sleep(0.05)
                 continue
 
-        ret, frame = cap.read()
-        if not ret:
-            time.sleep(0.05)
-            continue
+            now = datetime.datetime.now()
 
-        now = datetime.datetime.now()
+            # ── Motion detection ──────────────────────────
+            motion  = False
 
-        # ── Motion detection ──────────────────────────
-        motion  = False
+            if ENABLE_MOTION_DET:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray = cv2.GaussianBlur(gray, BLUR_KERNEL, 0)
 
-        if ENABLE_MOTION_DET:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray = cv2.GaussianBlur(gray, BLUR_KERNEL, 0)
+                if prev_gray is not None:
+                    delta = cv2.absdiff(prev_gray, gray)
+                    thresh = cv2.threshold(delta, 25, 255, cv2.THRESH_BINARY)[1]
+                    thresh = cv2.dilate(thresh, DILATION_KERNEL, iterations=2)
+                    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    total_area = sum(cv2.contourArea(c) for c in contours)
 
-            if prev_gray is not None:
-                delta = cv2.absdiff(prev_gray, gray)
-                thresh = cv2.threshold(delta, 25, 255, cv2.THRESH_BINARY)[1]
-                thresh = cv2.dilate(thresh, DILATION_KERNEL, iterations=2)
-                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                total_area = sum(cv2.contourArea(c) for c in contours)
+                    if total_area > MOTION_THRESHOLD:
+                        motion       = True
+                        record_until = now + datetime.timedelta(seconds=RECORD_SECONDS)
 
-                if total_area > MOTION_THRESHOLD:
-                    motion       = True
-                    record_until = now + datetime.timedelta(seconds=RECORD_SECONDS)
+                        # Register event
+                        if not _motion_active:
+                            ts_str = now.strftime("%H:%M:%S")
+                            with _lock:
+                                _event_log.appendleft({"time": ts_str, "type": "motion"})
+                                _stats["total_events"] += 1
+                            _last_motion_ts = now
 
-                    # Register event
-                    if not _motion_active:
-                        ts_str = now.strftime("%H:%M:%S")
-                        with _lock:
-                            _event_log.insert(0, {"time": ts_str, "type": "motion"})
-                            if len(_event_log) > 100:
-                                _event_log.pop()
-                            _stats["total_events"] += 1
-                        _last_motion_ts = now
+                        # Draw rectangles over moving objects
+                        height, width, _ = frame.shape
+                        xmin, ymin, xmax, ymax = width, height, 0, 0
+                        for c in contours:
+                            if cv2.contourArea(c) > MIN_CONTOUR_AREA:
+                                x, y, w, h = cv2.boundingRect(c)
+                                # cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 230, 80), 2)
+                                xmin = min(xmin, x)
+                                ymin = min(ymin, y)
+                                xmax = max(xmax, x + w)
+                                ymax = max(ymax, y + h)
+                        if xmax > 0 and ymax > 0:
+                            cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (38, 167, 255), 2)
 
-                    # Draw rectangles over moving objects
-                    height, width, _ = frame.shape
-                    xmin, ymin, xmax, ymax = width, height, 0, 0
-                    for c in contours:
-                        if cv2.contourArea(c) > MIN_CONTOUR_AREA:
-                            x, y, w, h = cv2.boundingRect(c)
-                            # cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 230, 80), 2)
-                            xmin = min(xmin, x)
-                            ymin = min(ymin, y)
-                            xmax = max(xmax, x + w)
-                            ymax = max(ymax, y + h)
-                    if xmax > 0 and ymax > 0:
-                        cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (38, 167, 255), 2)
+                prev_gray = gray
 
-            prev_gray = gray
+            # ── Recording ────────────────────────────────────────
+            currently_recording = ENABLE_RECORDINGS and record_until is not None and now < record_until
 
-        # ── Recording ────────────────────────────────────────
-        currently_recording = ENABLE_RECORDINGS and record_until is not None and now < record_until
-
-        if currently_recording:
-            if video_writer is None:
-                _cleanup_old_recordings()
-                fname = os.path.join(RECORDINGS_DIR, f"mov_{now.strftime('%Y%m%d_%H%M%S')}.mp4")
-                # 'avc1' (H.264) works on Windows/macOS; fall back to 'mp4v' on Linux
-                # if the encoder is unavailable.
-                fourcc = cv2.VideoWriter.fourcc(*'avc1')
-                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                video_writer = cv2.VideoWriter(fname, fourcc, STREAM_FPS, (actual_w, actual_h))
-                if not video_writer.isOpened():
-                    # avc1 unavailable — fall back to MPEG-4 Part 2
-                    fourcc = cv2.VideoWriter.fourcc(*'mp4v')
+            if currently_recording:
+                if video_writer is None:
+                    _cleanup_old_recordings()
+                    fname = os.path.join(RECORDINGS_DIR, f"mov_{now.strftime('%Y%m%d_%H%M%S')}.mp4")
+                    # 'avc1' (H.264) works on Windows/macOS; fall back to 'mp4v' on Linux
+                    # if the encoder is unavailable.
+                    fourcc = cv2.VideoWriter.fourcc(*'avc1')
+                    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     video_writer = cv2.VideoWriter(fname, fourcc, STREAM_FPS, (actual_w, actual_h))
-            video_writer.write(frame)
-        else:
+                    if not video_writer.isOpened():
+                        # avc1 unavailable — fall back to MPEG-4 Part 2
+                        fourcc = cv2.VideoWriter.fourcc(*'mp4v')
+                        video_writer = cv2.VideoWriter(fname, fourcc, STREAM_FPS, (actual_w, actual_h))
+                video_writer.write(frame)
+            else:
+                if video_writer is not None:
+                    video_writer.release()
+                    video_writer = None
+
+            # ── Screen overlay ────────────────────────────────────
+            _draw_overlay(frame, now, motion, currently_recording)
+
+            # ── Update global state ───────────────────────────────
+            with _lock:
+                _current_frame  = frame.copy()
+                _motion_active  = motion
+                _is_recording   = currently_recording
+
+            time.sleep(1 / STREAM_FPS)
+        except Exception as exc:
+            logger.exception("camera_worker error: %s — restarting loop", exc)
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+                cap = None
             if video_writer is not None:
-                video_writer.release()
+                try:
+                    video_writer.release()
+                except Exception:
+                    pass
                 video_writer = None
-
-        # ── Screen overlay ────────────────────────────────────
-        _draw_overlay(frame, now, motion, currently_recording)
-
-        # ── Update global state ───────────────────────────────
-        with _lock:
-            _current_frame  = frame.copy()
-            _motion_active  = motion
-            _is_recording   = currently_recording
-
-        time.sleep(1 / STREAM_FPS)
-
-    if cap is not None:
-        cap.release()
+            time.sleep(1.0)
 
 
 def _draw_overlay(frame, ts, motion, recording):
@@ -498,8 +523,8 @@ async def _handle_offer(data):
     return {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
 
 
-def _run_coroutine(coro):
-    return asyncio.run_coroutine_threadsafe(coro, _aiortc_loop).result()
+def _run_coroutine(coro, timeout=15):
+    return asyncio.run_coroutine_threadsafe(coro, _aiortc_loop).result(timeout=timeout)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -548,16 +573,53 @@ def require_auth(f):
     return decorated
 
 
+# ── Simple in-memory rate limiter for login attempts ──
+_login_attempts = {}  # ip -> (count, first_attempt_time)
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW_SECONDS = 300  # 5-minute window
+
+def _is_rate_limited(ip: str) -> bool:
+    now = time.time()
+    if ip in _login_attempts:
+        count, first_ts = _login_attempts[ip]
+        if now - first_ts > _LOGIN_WINDOW_SECONDS:
+            del _login_attempts[ip]
+            return False
+        return count >= _LOGIN_MAX_ATTEMPTS
+    return False
+
+def _record_failed_attempt(ip: str):
+    now = time.time()
+    if ip in _login_attempts:
+        count, first_ts = _login_attempts[ip]
+        if now - first_ts > _LOGIN_WINDOW_SECONDS:
+            _login_attempts[ip] = (1, now)
+        else:
+            _login_attempts[ip] = (count + 1, first_ts)
+    else:
+        _login_attempts[ip] = (1, now)
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if not LOGIN_PASSWORD_HASH:
         return redirect("/")
     if request.method == "POST":
+        # CSRF validation
+        token = request.form.get("_csrf_token", "")
+        if not token or token != session.get("_csrf_token"):
+            return render_template("login.html", error="Invalid request. Please try again."), 403
+        client_ip = request.remote_addr or "unknown"
+        if _is_rate_limited(client_ip):
+            return render_template("login.html", error="Too many attempts. Try again later."), 429
         pwd = request.form.get("password", "")
         if verify_password(pwd, LOGIN_PASSWORD_HASH):
+            _login_attempts.pop(client_ip, None)
+            session.pop("_csrf_token", None)  # rotate token on login
             session["authenticated"] = True
             session["from_login"] = True
             return redirect("/")
+        _record_failed_attempt(client_ip)
         return render_template("login.html", error="Incorrect password")
     return render_template("login.html", error=None)
 
@@ -650,7 +712,7 @@ def api_status():
             "recording": _is_recording,
             "total_events": _stats["total_events"],
             "uptime": f"{h:02d}:{m:02d}:{s:02d}",
-            "events": _event_log[:20],
+            "events": list(_event_log)[:20],
             "port": FLASK_PORT,
         })
 
@@ -719,6 +781,8 @@ def main():
 
     env_hash = os.getenv(PASSWORD_HASH_ENV, "")
     if args.password:
+        print("[!] WARNING: --password is visible in the process list (ps aux).")
+        print("    Prefer --password-hash or the REMOTE_CAMERA_PASSWORD_HASH env var.")
         LOGIN_PASSWORD_HASH = hash_password(args.password)
     elif args.password_hash:
         LOGIN_PASSWORD_HASH = args.password_hash
@@ -735,6 +799,10 @@ def main():
     if not use_caddy and args.ssl_cert and args.ssl_key:
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(args.ssl_cert, args.ssl_key)
+
+    # Mark session cookie Secure when served over TLS (Caddy or direct SSL)
+    if use_caddy or ssl_context:
+        app.config["SESSION_COOKIE_SECURE"] = True
 
     # Re-compute RECORDINGS_DIR in case --port or CWD changed
     RECORDINGS_DIR = os.path.join(os.getcwd(), "recordings")
@@ -802,7 +870,7 @@ def main():
     aiortc_thread = threading.Thread(target=_start_aiortc_loop, daemon=True)
     aiortc_thread.start()
 
-    app.run(host="0.0.0.0", port=FLASK_PORT, threaded=True, debug=True, use_reloader=False, ssl_context=ssl_context)
+    app.run(host="0.0.0.0", port=FLASK_PORT, threaded=True, debug=False, use_reloader=False, ssl_context=ssl_context)
 
 
 if __name__ == "__main__":
