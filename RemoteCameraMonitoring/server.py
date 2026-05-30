@@ -38,6 +38,27 @@ _cfg = load_config()
 _caddy_proc = None
 
 
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be >= 0")
+    return parsed
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be > 0")
+    return parsed
+
+
+def _valid_port(value: str) -> int:
+    parsed = int(value)
+    if not 1 <= parsed <= 65535:
+        raise argparse.ArgumentTypeError("must be in range 1..65535")
+    return parsed
+
+
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -75,14 +96,14 @@ def main():
 
     parser = argparse.ArgumentParser(description="RemoteCamera — headless server")
     parser.add_argument("-s", "--setup", action="store_true", help="Run camera setup utility", required=False)
-    parser.add_argument("-c", "--camera", type=int, default=state.CAMERA_INDEX, help="Camera index")
-    parser.add_argument("--width", type=int, default=state.STREAM_WIDTH, help="Stream width in pixels")
-    parser.add_argument("--height", type=int, default=state.STREAM_HEIGHT, help="Stream height in pixels")
-    parser.add_argument("--fps", type=int, default=state.STREAM_FPS, help="Stream frames per second")
+    parser.add_argument("-c", "--camera", type=_non_negative_int, default=state.CAMERA_INDEX, help="Camera index")
+    parser.add_argument("--width", type=_positive_int, default=state.STREAM_WIDTH, help="Stream width in pixels")
+    parser.add_argument("--height", type=_positive_int, default=state.STREAM_HEIGHT, help="Stream height in pixels")
+    parser.add_argument("--fps", type=_positive_int, default=state.STREAM_FPS, help="Stream frames per second")
     parser.add_argument("-a", "--audio-device", type=int, default=None, help="Audio input device index (default: system default)")
     parser.add_argument("-r", "--record", action="store_true", default=state.ENABLE_RECORDINGS, help="Enable recordings")
     parser.add_argument("-m", "--motion", action="store_true", default=state.ENABLE_MOTION_DET, help="Enable motion detection")
-    parser.add_argument("-p", "--port", type=int, default=state.FLASK_PORT, help="Flask server port")
+    parser.add_argument("-p", "--port", type=_valid_port, default=state.FLASK_PORT, help="Flask server port")
     parser.add_argument("--password", type=str, default=None, metavar="PWD", help="Password to protect the web interface (leave empty to disable)")
     parser.add_argument("--password-hash", type=str, default=None, metavar="HASH", help="Precomputed password hash; or set REMOTE_CAMERA_PASSWORD_HASH instead")
     parser.add_argument("--ssl-cert", type=str, default=None, metavar="PATH", help="Path to TLS certificate file for HTTPS")

@@ -475,11 +475,10 @@ class ServerLauncher(tk.Tk):
         
         # check caddy executable if enabled
         if self._caddy.get():
-            parent = os.path.abspath(os.path.join(_HERE, os.pardir))
-            caddy_file = os.path.join(parent, "resources", "caddy.exe")
-            if not os.path.exists(self._cfg["caddy_exe"]):
+            caddy_exe = self._cfg.get("caddy_exe", "")
+            if not os.path.exists(caddy_exe):
                 messagebox.showerror("Error", f"Caddy executable not found in path:\n"
-                                              f"{self._cfg["caddy_exe"]}\n"
+                                              f"{caddy_exe}\n"
                                               f"Please download it and place it in this folder.")
                 return None
             
