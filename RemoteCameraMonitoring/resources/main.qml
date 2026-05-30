@@ -150,10 +150,10 @@ ApplicationWindow {
                                 spacing: 10
                                 Text { text: "Camera"; font.bold: true; color: "#4a5060"; Layout.preferredWidth: 90 }
                                 StyledComboBox {
-                                    model: backend.cameras
+                                    model: backend ? backend.cameras : []
                                     Layout.fillWidth: true
-                                    currentIndex: model.indexOf(backend.selectedCamera)
-                                    onActivated: (index) => backend.selectedCamera = model[index]
+                                    currentIndex: backend ? model.indexOf(backend.selectedCamera) : -1
+                                    onActivated: (index) => { if (backend) backend.selectedCamera = model[index] }
                                 }
                             }
 
@@ -161,16 +161,16 @@ ApplicationWindow {
                                 spacing: 10
                                 Text { text: "Width (px)"; font.bold: true; color: "#4a5060"; Layout.preferredWidth: 90 }
                                 StyledTextField {
-                                    text: backend.streamWidth
+                                    text: backend ? backend.streamWidth : ""
                                     Layout.fillWidth: true
-                                    onTextChanged: backend.streamWidth = text
+                                    onTextChanged: { if (backend) backend.streamWidth = text }
                                     validator: IntValidator { bottom: 1; top: 9999 }
                                 }
                                 Text { text: "Height"; font.bold: true; color: "#4a5060" }
                                 StyledTextField {
-                                    text: backend.streamHeight
+                                    text: backend ? backend.streamHeight : ""
                                     Layout.fillWidth: true
-                                    onTextChanged: backend.streamHeight = text
+                                    onTextChanged: { if (backend) backend.streamHeight = text }
                                     validator: IntValidator { bottom: 1; top: 9999 }
                                 }
                             }
@@ -179,16 +179,16 @@ ApplicationWindow {
                                 spacing: 10
                                 Text { text: "FPS"; font.bold: true; color: "#4a5060"; Layout.preferredWidth: 90 }
                                 StyledTextField {
-                                    text: backend.fps
+                                    text: backend ? backend.fps : ""
                                     Layout.fillWidth: true
-                                    onTextChanged: backend.fps = text
+                                    onTextChanged: { if (backend) backend.fps = text }
                                     validator: IntValidator { bottom: 1; top: 120 }
                                 }
                                 Text { text: "Port  "; font.bold: true; color: "#4a5060" }
                                 StyledTextField {
-                                    text: backend.port
+                                    text: backend ? backend.port : ""
                                     Layout.fillWidth: true
-                                    onTextChanged: backend.port = text
+                                    onTextChanged: { if (backend) backend.port = text }
                                     validator: IntValidator { bottom: 1; top: 65535 }
                                 }
                             }
@@ -207,17 +207,17 @@ ApplicationWindow {
                                 spacing: 10
                                 Text { text: "Password"; font.bold: true; color: "#4a5060"; Layout.preferredWidth: 90 }
                                 StyledTextField {
-                                    text: backend.password
+                                    text: backend ? backend.password : ""
                                     echoMode: TextInput.Password
                                     placeholderText: "Leave empty for none"
                                     Layout.fillWidth: true
-                                    onTextChanged: backend.password = text
+                                    onTextChanged: { if (backend) backend.password = text }
                                 }
                                 
                                 StyledButton {
                                     text: "Hash"
                                     Layout.preferredWidth: 70
-                                    onClicked: backend.generateHash()
+                                    onClicked: { if (backend) backend.generateHash() }
                                 }
                             }
 
@@ -225,10 +225,10 @@ ApplicationWindow {
                                 spacing: 10
                                 Text { text: "Hash"; font.bold: true; color: "#4a5060"; Layout.preferredWidth: 90 }
                                 StyledTextField {
-                                    text: backend.passwordHash
+                                    text: backend ? backend.passwordHash : ""
                                     placeholderText: "Configured PBKDF2 hash"
                                     Layout.fillWidth: true
-                                    onTextChanged: backend.passwordHash = text
+                                    onTextChanged: { if (backend) backend.passwordHash = text }
                                 }
                             }
 
@@ -245,13 +245,13 @@ ApplicationWindow {
                                 StyledButton {
                                     text: "Cert File"
                                     Layout.preferredWidth: 100
-                                    onClicked: backend.selectCertFile()
+                                    onClicked: { if (backend) backend.selectCertFile() }
                                 }
                                 Text {
-                                    text: backend.sslCert ? backend.sslCert.substring(backend.sslCert.lastIndexOf('/') + 1) : "No cert selected"
-                                    color: backend.sslCert ? "#c8cdd4" : "#4a5060"
+                                    text: (backend && backend.sslCert) ? backend.sslCert.substring(backend.sslCert.lastIndexOf('/') + 1) : "No cert selected"
+                                    color: (backend && backend.sslCert) ? "#c8cdd4" : "#4a5060"
                                     elide: Text.ElideLeft
-                                    font.italic: !backend.sslCert
+                                    font.italic: !(backend && backend.sslCert)
                                     Layout.fillWidth: true
                                 }
                             }
@@ -261,13 +261,13 @@ ApplicationWindow {
                                 StyledButton {
                                     text: "Key File"
                                     Layout.preferredWidth: 100
-                                    onClicked: backend.selectKeyFile()
+                                    onClicked: { if (backend) backend.selectKeyFile() }
                                 }
                                 Text {
-                                    text: backend.sslKey ? backend.sslKey.substring(backend.sslKey.lastIndexOf('/') + 1) : "No key selected"
-                                    color: backend.sslKey ? "#c8cdd4" : "#4a5060"
+                                    text: (backend && backend.sslKey) ? backend.sslKey.substring(backend.sslKey.lastIndexOf('/') + 1) : "No key selected"
+                                    color: (backend && backend.sslKey) ? "#c8cdd4" : "#4a5060"
                                     elide: Text.ElideLeft
-                                    font.italic: !backend.sslKey
+                                    font.italic: !(backend && backend.sslKey)
                                     Layout.fillWidth: true
                                 }
                             }
@@ -286,10 +286,10 @@ ApplicationWindow {
                                 spacing: 10
                                 Text { text: "Device"; font.bold: true; color: "#4a5060"; Layout.preferredWidth: 90 }
                                 StyledComboBox {
-                                    model: backend.audioDevices
+                                    model: backend ? backend.audioDevices : []
                                     Layout.fillWidth: true
-                                    currentIndex: model.indexOf(backend.selectedAudio)
-                                    onActivated: (index) => backend.selectedAudio = model[index]
+                                    currentIndex: backend ? model.indexOf(backend.selectedAudio) : -1
+                                    onActivated: (index) => { if (backend) backend.selectedAudio = model[index] }
                                 }
                             }
                         }
@@ -305,20 +305,20 @@ ApplicationWindow {
 
                             StyledCheckBox {
                                 text: "Enable motion detection"
-                                checked: backend.motion
-                                onCheckedChanged: backend.motion = checked
+                                checked: backend ? backend.motion : false
+                                onCheckedChanged: { if (backend) backend.motion = checked }
                             }
 
                             StyledCheckBox {
                                 text: "Enable video recordings"
-                                checked: backend.recordings
-                                onCheckedChanged: backend.recordings = checked
+                                checked: backend ? backend.recordings : false
+                                onCheckedChanged: { if (backend) backend.recordings = checked }
                             }
 
                             StyledCheckBox {
                                 text: "Enable HTTPS with Caddy reverse proxy"
-                                checked: backend.caddy
-                                onCheckedChanged: backend.caddy = checked
+                                checked: backend ? backend.caddy : false
+                                onCheckedChanged: { if (backend) backend.caddy = checked }
                             }
                         }
                     }
@@ -354,18 +354,40 @@ ApplicationWindow {
                                 }
                             }
 
-                            onClicked: backend.toggleServer()
+                            onClicked: { if (backend) backend.toggleServer() }
                         }
 
                         StyledButton {
-                            text: "🌐"
-                            font.pixelSize: 18
+                            text: ""
                             Layout.preferredWidth: 50
                             Layout.preferredHeight: 45
                             customBgColor: "#111417"
                             customTextColor: "#00e676"
                             customBorderColor: "#1e2329"
-                            onClicked: backend.openBrowser()
+                            contentItem: Item {
+                                Image {
+                                    id: openBrowserIcon
+                                    source: "open-browser.svg"
+                                    width: 18
+                                    height: 18
+                                    sourceSize.width: 18
+                                    sourceSize.height: 18
+                                    fillMode: Image.PreserveAspectFit
+                                    smooth: true
+                                    mipmap: true
+                                    anchors.centerIn: parent
+                                    visible: status === Image.Ready
+                                }
+                                Text {
+                                    text: "WEB"
+                                    color: "#00e676"
+                                    font.bold: true
+                                    font.pixelSize: 10
+                                    anchors.centerIn: parent
+                                    visible: openBrowserIcon.status !== Image.Ready
+                                }
+                            }
+                            onClicked: { if (backend) backend.openBrowser() }
                         }
                     }
                     Item { Layout.preferredHeight: 8 }  // bottom gap

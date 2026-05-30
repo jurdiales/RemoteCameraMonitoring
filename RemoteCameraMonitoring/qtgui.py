@@ -546,6 +546,7 @@ def main():
 
     # Graceful shutdown: stop the server subprocess when the window is closed.
     root_window = app.engine.rootObjects()[0]
+    root_window.showMaximized()
     root_window.closing.connect(app.backend.stopServer)
 
     sys.exit(app.exec())
