@@ -374,6 +374,14 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        .rec-item a {
+            color: inherit;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .rec-item a:hover {
+            color: var(--green);
+        }
         
         /* ── FOOTER ── */
         footer {
@@ -587,7 +595,6 @@
         // ── WebRTC stream setup ─────────────────────
         const video = document.getElementById('feed');
         video.addEventListener("play", handleFirstPlay);
-        const mjpeg = document.getElementById('mjpeg-feed');
 
         let hasPlayed = false;
         // This will be fired when the video is resumed after being paused and when autoplay occurs
@@ -959,7 +966,7 @@
                     el.innerHTML = '<div class="rec-item">No recordings yet</div>';
                 } else {
                     el.innerHTML = d.map(f =>
-                    `<div class="rec-item" title="${f.name}">📹 ${f.name} · ${f.size}</div>`
+                    `<div class="rec-item" title="${f.name}"><a href="/recordings/${f.name}" target="_blank">📹 ${f.name} · ${f.size}</a></div>`
                     ).join('');
                 }
             } catch(e) { /* server not available */ }

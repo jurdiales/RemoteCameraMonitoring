@@ -10,7 +10,7 @@ import time
 from functools import wraps
 
 import importlib.resources as pkg_resources
-from flask import Flask, Response, jsonify, render_template, request, session, redirect
+from flask import Flask, Response, jsonify, render_template, request, session, redirect, send_from_directory
 from flask_sock import Sock
 
 try:
@@ -249,3 +249,11 @@ def api_recordings():
             size_mb = os.path.getsize(path) / (1024 * 1024)
             files.append({"name": f, "size": f"{size_mb:.1f} MB"})
     return jsonify(files)
+
+
+@app.route("/recordings/<path:filename>")
+@require_auth
+def download_recording(filename):
+    """Serve a recorded MP4 file directly."""
+    return send_from_directory(state.RECORDINGS_DIR, filename)
+
