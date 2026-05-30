@@ -5,6 +5,7 @@ import cv2
 import sounddevice as sd
 
 _OS = platform.system()
+MAX_CAMERA_PORTS = 10  # upper bound to avoid excessive probing on systems with virtual cameras
 
 # ── Cameras ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 def list_cameras() -> list[str]:
@@ -23,11 +24,11 @@ def list_cameras() -> list[str]:
 
     # Generic: scan indices with OpenCV
     names: list[str] = []
-    for idx in range(10):
+    for idx in range(MAX_CAMERA_PORTS):
         cap = cv2.VideoCapture(idx)
         if not cap.isOpened():
             cap.release()
-            break
+            continue
         names.append(f"Camera {idx}")
         cap.release()
 
@@ -44,11 +45,11 @@ def list_camera_names() -> list[str]:
             pass
 
     names: list[str] = []
-    for idx in range(10):
+    for idx in range(MAX_CAMERA_PORTS):
         cap = cv2.VideoCapture(idx)
         if not cap.isOpened():
             cap.release()
-            break
+            continue
         names.append(f"Camera {idx}")
         cap.release()
     return names
@@ -116,28 +117,25 @@ def list_cameras_opencv() -> tuple:
     Test the cameras and returns a tuple with the available cameras 
     and the ones that are working.
     """
-    MAX_CAMERA_PORTS = 10  # upper bound to prevent an infinite scan on systems with virtual cameras
-    is_working = True
-    dev_port = 0
     working_cameras = []
     available_cameras = []
-    while is_working and dev_port < MAX_CAMERA_PORTS:
+    for dev_port in range(MAX_CAMERA_PORTS):
         camera = cv2.VideoCapture(dev_port)
         if not camera.isOpened():
-            is_working = False
+            camera.release()
+            continue
+
+        is_reading, _ = camera.read()
+        w = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(camera.get(cv2.CAP_PROP_FPS))
+        camera.release()  # release the handle so the camera is free for the main thread
+        if is_reading:
+            print("Port %s is working and reads images (%s x %s)" %(dev_port, h, w))
+            working_cameras.append(CameraInfo(port=dev_port, width=w, height=h, fps=fps))
         else:
-            is_reading, _ = camera.read()
-            w = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = int(camera.get(cv2.CAP_PROP_FPS))
-            camera.release()  # release the handle so the camera is free for the main thread
-            if is_reading:
-                print("Port %s is working and reads images (%s x %s)" %(dev_port, h, w))
-                working_cameras.append(CameraInfo(port=dev_port, width=w, height=h, fps=fps))
-            else:
-                print("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port, h, w))
-                available_cameras.append(dev_port)
-        dev_port += 1
+            print("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port, h, w))
+            available_cameras.append(dev_port)
     return available_cameras, working_cameras
 
 
