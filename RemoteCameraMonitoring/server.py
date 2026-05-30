@@ -120,6 +120,7 @@ os.makedirs(RECORDINGS_DIR, exist_ok=True)
 # Global status shared between threads
 _lock             = threading.Lock()
 _current_frame    = None
+_current_jpeg     = None             # pre-encoded JPEG bytes (shared by MJPEG + WS consumers)
 _motion_active    = False
 _is_recording     = False
 _last_motion_ts   = None
@@ -141,6 +142,29 @@ def _cleanup_caddy():
                 pass
 
 atexit.register(_cleanup_caddy)
+
+
+async def _close_all_pcs():
+    """Close all active WebRTC peer connections."""
+    coros = [pc.close() for pc in list(_pcs)]
+    if coros:
+        await asyncio.gather(*coros, return_exceptions=True)
+    _pcs.clear()
+
+
+def _cleanup_webrtc():
+    """Gracefully shut down the aiortc event loop and all peer connections."""
+    if _aiortc_loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(_close_all_pcs(), _aiortc_loop)
+        try:
+            future.result(timeout=5)
+        except Exception:
+            pass
+        _aiortc_loop.call_soon_threadsafe(_aiortc_loop.stop)
+
+
+atexit.register(_cleanup_webrtc)
+
 
 def is_camera_needed():
     with _lock:
@@ -210,6 +234,7 @@ def camera_worker():
                 time.sleep(0.05)
                 continue
 
+            _frame_start = time.monotonic()
             now = datetime.datetime.now()
 
             # ── Motion detection ──────────────────────────
@@ -280,13 +305,22 @@ def camera_worker():
             # ── Screen overlay ────────────────────────────────────
             _draw_overlay(frame, now, motion, currently_recording)
 
+            # ── Encode JPEG once for all MJPEG/WS consumers ──────
+            ret, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
+            jpeg_bytes = buf.tobytes() if ret else None
+
             # ── Update global state ───────────────────────────────
             with _lock:
-                _current_frame  = frame.copy()
+                _current_frame  = frame
+                _current_jpeg   = jpeg_bytes
                 _motion_active  = motion
                 _is_recording   = currently_recording
 
-            time.sleep(1 / STREAM_FPS)
+            # Sleep accounting for elapsed processing time to maintain target FPS
+            elapsed = time.monotonic() - _frame_start
+            sleep_time = max(0, (1 / STREAM_FPS) - elapsed)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
         except Exception as exc:
             logger.exception("camera_worker error: %s — restarting loop", exc)
             if cap is not None:
@@ -360,8 +394,7 @@ class CameraVideoTrack(VideoStreamTrack):
 
         while frame is None:
             with _lock:
-                if _current_frame is not None:
-                    frame = _current_frame.copy()
+                frame = _current_frame
             if frame is None:
                 await asyncio.sleep(1 / STREAM_FPS)
 
@@ -537,19 +570,15 @@ def _mjpeg_generator():
     try:
         while True:
             with _lock:
-                frame = _current_frame
+                jpeg = _current_jpeg
 
-            if frame is None:
+            if jpeg is None:
                 time.sleep(0.05)
-                continue
-
-            ret, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
-            if not ret:
                 continue
 
             yield (
                 b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
             )
             time.sleep(1 / STREAM_FPS)
     finally:
@@ -633,6 +662,12 @@ def logout():
 # ══════════════════════════════════════════════════════════════
 #  FLASK ROUTES
 # ══════════════════════════════════════════════════════════════
+@app.route("/health")
+def health():
+    """Unauthenticated health-check for monitoring tools and load balancers."""
+    return jsonify({"status": "ok"}), 200
+
+
 @app.route("/")
 @require_auth
 def index():
@@ -672,15 +707,13 @@ def ws_stream(ws):
     try:
         while True:
             with _lock:
-                frame = _current_frame
+                jpeg = _current_jpeg
 
-            if frame is None:
+            if jpeg is None:
                 time.sleep(0.05)
                 continue
 
-            ret, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
-            if ret:
-                ws.send(buf.tobytes())
+            ws.send(jpeg)
 
             time.sleep(1 / STREAM_FPS)
     except Exception:
@@ -696,7 +729,13 @@ def offer():
     data = request.get_json()
     if not data or "sdp" not in data or "type" not in data:
         return jsonify({"error": "Invalid SDP offer"}), 400
-    answer = _run_coroutine(_handle_offer(data))
+    try:
+        answer = _run_coroutine(_handle_offer(data))
+    except TimeoutError:
+        return jsonify({"error": "WebRTC negotiation timed out"}), 504
+    except Exception as e:
+        logging.getLogger(__name__).error("WebRTC offer failed: %s", e)
+        return jsonify({"error": "WebRTC setup failed"}), 500
     return jsonify(answer)
 
 
