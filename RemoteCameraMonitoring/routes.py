@@ -31,7 +31,15 @@ except ModuleNotFoundError:
     _TEMPLATES_DIR = "templates"
 
 app = Flask(__name__, template_folder=_TEMPLATES_DIR)
-app.secret_key = secrets.token_hex(32)
+_configured_secret = os.getenv(state.SECRET_KEY_ENV, state.FLASK_SECRET_KEY)
+if _configured_secret:
+    app.secret_key = _configured_secret
+else:
+    app.secret_key = secrets.token_hex(32)
+    logging.getLogger(__name__).warning(
+        "No persistent Flask secret key configured; sessions will reset on restart. "
+        "Set REMOTE_CAMERA_SECRET_KEY or flask_secret_key in config."
+    )
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Strict",
@@ -69,29 +77,45 @@ def require_auth(f):
 _login_attempts = {}  # ip -> (count, first_attempt_time)
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW_SECONDS = 300
+_LOGIN_MAX_TRACKED_IPS = 1024
+
+
+def _prune_login_attempts(now: float):
+    expired_ips = [
+        ip for ip, (_, first_ts) in _login_attempts.items()
+        if now - first_ts > _LOGIN_WINDOW_SECONDS
+    ]
+    for ip in expired_ips:
+        _login_attempts.pop(ip, None)
+
+    overflow = len(_login_attempts) - _LOGIN_MAX_TRACKED_IPS
+    if overflow > 0:
+        oldest_ips = sorted(
+            _login_attempts.items(),
+            key=lambda item: item[1][1],
+        )[:overflow]
+        for ip, _ in oldest_ips:
+            _login_attempts.pop(ip, None)
 
 
 def _is_rate_limited(ip: str) -> bool:
     now = time.time()
+    _prune_login_attempts(now)
     if ip in _login_attempts:
-        count, first_ts = _login_attempts[ip]
-        if now - first_ts > _LOGIN_WINDOW_SECONDS:
-            del _login_attempts[ip]
-            return False
+        count, _ = _login_attempts[ip]
         return count >= _LOGIN_MAX_ATTEMPTS
     return False
 
 
 def _record_failed_attempt(ip: str):
     now = time.time()
+    _prune_login_attempts(now)
     if ip in _login_attempts:
         count, first_ts = _login_attempts[ip]
-        if now - first_ts > _LOGIN_WINDOW_SECONDS:
-            _login_attempts[ip] = (1, now)
-        else:
-            _login_attempts[ip] = (count + 1, first_ts)
+        _login_attempts[ip] = (count + 1, first_ts)
     else:
         _login_attempts[ip] = (1, now)
+    _prune_login_attempts(now)
 
 
 # ─────────────────────────────────────────────

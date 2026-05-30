@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+import shutil
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PARENT = os.path.abspath(os.path.join(_HERE, os.pardir))
@@ -23,6 +24,29 @@ def _get_default_config_file() -> str:
     if os.path.isdir(_PARENT) and os.access(_PARENT, os.W_OK):
         return project_config
     return os.path.join(_get_user_config_dir(), "config.json")
+
+
+def _default_caddy_executable() -> str:
+    local_name = "caddy.exe" if os.name == "nt" else "caddy"
+    local_path = os.path.join(_PARENT, "resources", local_name)
+    if os.path.exists(local_path):
+        return local_path
+    return shutil.which("caddy") or local_path
+
+
+def resolve_caddy_executable(candidate: str = "") -> str:
+    raw = (candidate or "").strip()
+    if raw:
+        if os.path.exists(raw):
+            return raw
+
+        # If this is a bare command name, resolve it from PATH.
+        if os.path.sep not in raw and (os.path.altsep is None or os.path.altsep not in raw):
+            resolved = shutil.which(raw)
+            if resolved:
+                return resolved
+
+    return shutil.which("caddy") or ""
 
 
 CONFIG_FILE = os.getenv(CONFIG_ENV_VAR, _get_default_config_file())
@@ -52,10 +76,11 @@ DEFAULT_CONFIG = {
     "max_recordings": 50,
     # authentication
     "login_password_hash": "",
+    "flask_secret_key": "",
     "ssl_cert": "",
     "ssl_key": "",
     "use_caddy": False,
-    "caddy_exe": os.path.join(_PARENT, "resources", "caddy.exe")
+    "caddy_exe": _default_caddy_executable(),
 }
 
 def load_config():

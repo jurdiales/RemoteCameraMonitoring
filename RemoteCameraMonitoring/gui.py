@@ -26,12 +26,12 @@ if PLATFORM == 'Windows':
 try:
     from . import state as srv   # installed package
     from .utils import list_camera_names, list_audio_input_names
-    from .config import load_config, save_config
+    from .config import load_config, save_config, resolve_caddy_executable
     from .password import hash_password
 except ImportError:
     import state as srv          # plain script
     from utils import list_camera_names, list_audio_input_names
-    from config import load_config, save_config
+    from config import load_config, save_config, resolve_caddy_executable
     from password import hash_password
 
 # ── Colour palette (mirrors the web UI) ──────────────────────────────────────────────────────────────────────────────
@@ -475,12 +475,16 @@ class ServerLauncher(tk.Tk):
         
         # check caddy executable if enabled
         if self._caddy.get():
-            caddy_exe = self._cfg.get("caddy_exe", "")
+            configured_caddy = self._cfg.get("caddy_exe", "")
+            caddy_exe = resolve_caddy_executable(configured_caddy)
             if not os.path.exists(caddy_exe):
-                messagebox.showerror("Error", f"Caddy executable not found in path:\n"
-                                              f"{caddy_exe}\n"
-                                              f"Please download it and place it in this folder.")
+                details = f"Configured value: {configured_caddy}\n" if configured_caddy else ""
+                messagebox.showerror("Error", "Caddy executable not found.\n"
+                                              f"{details}"
+                                              "Install Caddy and add it to PATH,\n"
+                                              "or set caddy_exe in config.json.")
                 return None
+            self._cfg["caddy_exe"] = caddy_exe
             
         # Save settings for next time
         self._save_settings(camera_index, audio_index)
@@ -501,7 +505,7 @@ class ServerLauncher(tk.Tk):
             self._cfg["enable_motion_det"] = self._motion.get()
             self._cfg["enable_recordings"] = self._record.get()
             self._cfg["use_caddy"] = self._caddy.get()
-            # TODO select a path for Caddy executable and store it in config
+            self._cfg["caddy_exe"] = self._cfg.get("caddy_exe", "")
             save_config(self._cfg)
         except Exception as e:
             self._log(f"Error saving config: {e}\n", "err")

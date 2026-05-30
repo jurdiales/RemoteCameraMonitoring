@@ -22,7 +22,7 @@ try:
     from .routes import app
     from .utils import list_cameras_opencv
     from .password import hash_password
-    from .config import load_config
+    from .config import load_config, resolve_caddy_executable
 except ImportError:
     import state
     from capture import camera_worker
@@ -30,7 +30,7 @@ except ImportError:
     from routes import app
     from utils import list_cameras_opencv
     from password import hash_password
-    from config import load_config
+    from config import load_config, resolve_caddy_executable
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PARENT = os.path.abspath(os.path.join(_HERE, os.pardir))
@@ -210,12 +210,21 @@ def main():
         print(f"[*] Starting Caddy server for https://localhost and https://{local_ip}...")
         success = False
         try:
-            caddy_exe = _cfg.get("caddy_exe", "")
-            if os.path.exists(caddy_exe):
-                _caddy_proc = subprocess.Popen([caddy_exe, "run"], cwd=os.path.dirname(caddy_exe))
+            caddy_cfg = _cfg.get("caddy_exe", "")
+            caddy_exe = resolve_caddy_executable(caddy_cfg)
+            if caddy_exe:
+                _cfg["caddy_exe"] = caddy_exe
+                _caddy_proc = subprocess.Popen(
+                    [caddy_exe, "run", "--config", caddyfile_path],
+                    cwd=_PARENT,
+                )
                 success = True
             else:
-                print("[!] caddy.exe not found. Please download it and place it in this folder.")
+                if caddy_cfg:
+                    print(f"[!] Caddy executable not found: {caddy_cfg}")
+                else:
+                    print("[!] Caddy executable not configured.")
+                print("    Install Caddy and add it to PATH, or set caddy_exe in config.")
         except Exception as e:
             print(f"[!] Failed to start Caddy: {e}")
 

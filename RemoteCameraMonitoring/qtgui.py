@@ -21,12 +21,12 @@ from PySide6.QtWidgets import QApplication, QFileDialog
 try:
     from . import state as srv
     from .utils import list_camera_names, list_audio_input_names
-    from .config import load_config, save_config
+    from .config import load_config, save_config, resolve_caddy_executable
     from .password import hash_password
 except ImportError:
     import state as srv
     from utils import list_camera_names, list_audio_input_names
-    from config import load_config, save_config
+    from config import load_config, save_config, resolve_caddy_executable
     from password import hash_password
 
 PLATFORM = platform.system()
@@ -385,9 +385,17 @@ class ServerBackend(QObject):
 
         # Caddy executable check
         if self._caddy:
-            if not os.path.exists(self._cfg.get("caddy_exe", "")):
-                self.logReceived.emit(f"[Error] Caddy executable not found in path:\n{self._cfg.get('caddy_exe', '')}\nPlease download and place it in the resources folder.\n", "err")
+            configured_caddy = self._cfg.get("caddy_exe", "")
+            caddy_exe = resolve_caddy_executable(configured_caddy)
+            if not caddy_exe:
+                details = f"Configured value: {configured_caddy}\n" if configured_caddy else ""
+                self.logReceived.emit(
+                    f"[Error] Caddy executable not found.\n{details}"
+                    "Install Caddy and add it to PATH, or set caddy_exe in config.json.\n",
+                    "err",
+                )
                 return None
+            self._cfg["caddy_exe"] = caddy_exe
 
         # Save configuration
         self._save_settings(camera_index, audio_index)
@@ -407,6 +415,7 @@ class ServerBackend(QObject):
             self._cfg["enable_motion_det"] = self._motion
             self._cfg["enable_recordings"] = self._recordings
             self._cfg["use_caddy"] = self._caddy
+            self._cfg["caddy_exe"] = self._cfg.get("caddy_exe", "")
             save_config(self._cfg)
         except Exception as e:
             self.logReceived.emit(f"[Error] Failed to save config: {e}\n", "err")

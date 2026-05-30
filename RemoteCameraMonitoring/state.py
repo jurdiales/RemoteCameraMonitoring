@@ -50,7 +50,9 @@ MAX_RECORDINGS      = _cfg.get("max_recordings", 50)
 
 # Authentication
 LOGIN_PASSWORD_HASH = _cfg.get("login_password_hash", "")
+FLASK_SECRET_KEY   = _cfg.get("flask_secret_key", "")
 PASSWORD_HASH_ENV   = "REMOTE_CAMERA_PASSWORD_HASH"
+SECRET_KEY_ENV      = "REMOTE_CAMERA_SECRET_KEY"
 
 # ─────────────────────────────────────────────
 #  SHARED RUNTIME STATE
@@ -66,4 +68,3 @@ stats            = {"total_events": 0, "start_time": datetime.datetime.now()}
 active_viewers   = 0
 
 on_new_frame_callbacks = []
-
