@@ -17,13 +17,7 @@ def list_cameras() -> list[str]:
     if _OS == "Windows":
         try:
             from pygrabber.dshow_graph import FilterGraph  # type: ignore[import]
-            devices = FilterGraph().get_input_devices()
-            print("📷 Available Cameras:")
-            print(f"  {'Index':<6} {'Name'}")
-            print(f"  {'─'*5}  {'─'*40}")
-            for index, name in enumerate(devices):
-                print(f"  {index:<6} {name}")
-            return devices
+            return FilterGraph().get_input_devices()
         except Exception:
             pass  # fall through to the generic scan
 
@@ -37,11 +31,6 @@ def list_cameras() -> list[str]:
         names.append(f"Camera {idx}")
         cap.release()
 
-    print("📷 Available Cameras:")
-    print(f"  {'Index':<6} {'Name'}")
-    print(f"  {'─'*5}  {'─'*40}")
-    for index, name in enumerate(names):
-        print(f"  {index:<6} {name}")
     return names
 
 
@@ -159,7 +148,7 @@ def select_camera_opencv() -> int | None:
         return None
     elif len(working_cameras) == 1:
         print(f"One working camera found: {working_cameras[0]}. Using it by default.")
-        return working_cameras[0]
+        return working_cameras[0].port
     else:
         print("Multiple working cameras found. Please select one:")
         for idx, cam in enumerate(working_cameras):
@@ -168,7 +157,7 @@ def select_camera_opencv() -> int | None:
             try:
                 choice = int(input("Enter the number of the camera to use: "))
                 if 1 <= choice <= len(working_cameras):
-                    return working_cameras[choice - 1]
+                    return working_cameras[choice - 1].port
                 else:
                     print("Invalid choice. Please try again.")
             except ValueError:

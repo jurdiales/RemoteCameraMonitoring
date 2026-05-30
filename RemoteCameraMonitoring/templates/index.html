@@ -571,7 +571,7 @@
     
     <script>
         // ── Context ─────────────────────────────────
-        let audio_enabled = JSON.parse('{{ audio_enabled | tojson }}');
+        let audio_enabled = {{ audio_enabled | tojson }};
 
         // ── Reloj ───────────────────────────────────
         function updateClock() {
@@ -879,14 +879,14 @@
             lblAudio.textContent = 'Audio active';
         }
 
-        if (audio_enabled == "False") {
+        if (!audio_enabled) {
             set_muted();
             lblAudio.textContent = 'No audio';
             isMuted = true
         }
         
         muteBtn.addEventListener('click', () => {
-            if (audio_enabled == "False") return;
+            if (!audio_enabled) return;
             isMuted = !isMuted;
             video.muted = isMuted;
             if (isMuted) {

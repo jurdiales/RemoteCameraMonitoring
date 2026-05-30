@@ -351,12 +351,12 @@ def _draw_overlay(frame, ts, motion, recording):
 
     # Motion status
     if motion:
-        label  = "MOVIMIENTO DETECTADO"
+        label  = "MOTION DETECTED"
         color  = (0, 60, 255)
-        # Red flshing border
+        # Red flashing border
         cv2.rectangle(frame, (0, 0), (w - 1, h - 1), (0, 0, 220), 6)
     else:
-        label = "EN VIVO"
+        label = "LIVE"
         color = (0, 200, 80)
 
     cv2.putText(frame, label, (w - 340, 32),
@@ -672,7 +672,7 @@ def health():
 @require_auth
 def index():
     from_login = session.pop("from_login", False)
-    audio_enabled = "False" if AUDIO_DEVICE_INDEX is not None and AUDIO_DEVICE_INDEX == -1 else "True"
+    audio_enabled = not (AUDIO_DEVICE_INDEX is not None and AUDIO_DEVICE_INDEX == -1)
     return render_template("index.html", auth_enabled=bool(LOGIN_PASSWORD_HASH), from_login=from_login,
             audio_enabled=audio_enabled)
 
