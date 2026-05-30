@@ -259,6 +259,7 @@ def api_status():
             "total_events": state.stats["total_events"],
             "uptime": f"{h:02d}:{m:02d}:{s:02d}",
             "events": list(state.event_log)[:20],
+            "capture": dict(state.capture_stats),
             "port": state.FLASK_PORT,
         })
 

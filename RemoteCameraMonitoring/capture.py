@@ -18,7 +18,20 @@ except ImportError:
 
 
 MAX_CONSECUTIVE_READ_FAILURES = 30
-MOTION_HOLD_SECONDS = 0.8
+LOOP_TIME_EMA_ALPHA = 0.08
+
+
+def _brightness_threshold_factor(mean_luma: float) -> float:
+    """Map frame brightness to a threshold multiplier within configured bounds."""
+    min_factor = float(state.MOTION_THRESHOLD_MIN_FACTOR)
+    max_factor = float(state.MOTION_THRESHOLD_MAX_FACTOR)
+    norm = float(np.clip(mean_luma / 255.0, 0.0, 1.0))
+    return max_factor - (max_factor - min_factor) * norm
+
+
+def _update_capture_stats(**updates):
+    with state.lock:
+        state.capture_stats.update(updates)
 
 
 def _open_camera(index: int) -> cv2.VideoCapture:
@@ -54,9 +67,13 @@ def camera_worker(get_pcs_count):
     prev_gray = None
     video_writer = None
     read_failures = 0
+    total_read_failures = 0
+    camera_reopens = 0
     prev_motion_state = False
     motion_hold_until = 0.0
     record_until_monotonic = 0.0
+    noise_floor = float(state.MOTION_THRESHOLD)
+    loop_time_ema_ms = 0.0
 
     while True:
         try:
@@ -77,12 +94,23 @@ def camera_worker(get_pcs_count):
                 prev_motion_state = False
                 motion_hold_until = 0.0
                 record_until_monotonic = 0.0
+                noise_floor = float(state.MOTION_THRESHOLD)
 
                 with state.lock:
                     state.current_frame = None
                     state.current_jpeg = None
                     state.motion_active = False
                     state.is_recording = False
+
+                _update_capture_stats(
+                    read_failures_streak=0,
+                    read_failures_total=total_read_failures,
+                    camera_reopens=camera_reopens,
+                    last_loop_ms=0.0,
+                    motion_area=0.0,
+                    adaptive_threshold=float(state.MOTION_THRESHOLD),
+                    noise_floor=round(noise_floor, 2),
+                )
                 time.sleep(0.2)
                 continue
 
@@ -105,6 +133,7 @@ def camera_worker(get_pcs_count):
             ret, frame = cap.read()
             if not ret:
                 read_failures += 1
+                total_read_failures += 1
                 if read_failures >= MAX_CONSECUTIVE_READ_FAILURES:
                     logger.warning("Camera read failed %s times; reopening device", read_failures)
                     try:
@@ -113,7 +142,14 @@ def camera_worker(get_pcs_count):
                         pass
                     cap = None
                     prev_gray = None
+                    camera_reopens += 1
                     read_failures = 0
+
+                _update_capture_stats(
+                    read_failures_streak=read_failures,
+                    read_failures_total=total_read_failures,
+                    camera_reopens=camera_reopens,
+                )
                 time.sleep(0.05)
                 continue
 
@@ -126,6 +162,8 @@ def camera_worker(get_pcs_count):
             # ── Motion detection ──────────────────────────
             motion = False
             motion_contours = []
+            motion_area = 0.0
+            adaptive_threshold = float(state.MOTION_THRESHOLD)
 
             if state.ENABLE_MOTION_DET:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -137,10 +175,27 @@ def camera_worker(get_pcs_count):
                     thresh = cv2.dilate(thresh, state.DILATION_KERNEL, iterations=2)
                     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                     motion_contours = [c for c in contours if cv2.contourArea(c) > state.MIN_CONTOUR_AREA]
-                    total_area = sum(cv2.contourArea(c) for c in motion_contours)
+                    motion_area = float(sum(cv2.contourArea(c) for c in motion_contours))
 
-                    if total_area > state.MOTION_THRESHOLD:
-                        motion_hold_until = now_monotonic + MOTION_HOLD_SECONDS
+                    if state.ENABLE_ADAPTIVE_MOTION:
+                        brightness_factor = _brightness_threshold_factor(float(gray.mean()))
+                        alpha = float(np.clip(state.MOTION_NOISE_ALPHA, 0.0, 1.0))
+                        if not prev_motion_state:
+                            noise_sample_cap = float(state.MOTION_THRESHOLD) * 3.0
+                            noise_sample = min(motion_area, noise_sample_cap)
+                            noise_floor = (1.0 - alpha) * noise_floor + alpha * noise_sample
+
+                        adaptive_threshold = max(
+                            float(state.MOTION_THRESHOLD) * float(state.MOTION_THRESHOLD_MIN_FACTOR),
+                            float(state.MOTION_THRESHOLD) * brightness_factor,
+                            noise_floor * float(state.MOTION_NOISE_MULTIPLIER),
+                        )
+                    else:
+                        noise_floor = float(state.MOTION_THRESHOLD)
+                        adaptive_threshold = float(state.MOTION_THRESHOLD)
+
+                    if motion_area > adaptive_threshold:
+                        motion_hold_until = now_monotonic + max(0.0, float(state.MOTION_HOLD_SECONDS))
                         record_until_monotonic = max(
                             record_until_monotonic,
                             now_monotonic + max(0, int(state.RECORD_SECONDS)),
@@ -170,6 +225,7 @@ def camera_worker(get_pcs_count):
                 prev_gray = gray
             else:
                 prev_gray = None
+                noise_floor = float(state.MOTION_THRESHOLD)
 
             # ── Recording ────────────────────────────────────────
             currently_recording = state.ENABLE_RECORDINGS and (now_monotonic < record_until_monotonic)
@@ -183,10 +239,10 @@ def camera_worker(get_pcs_count):
                     actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     if actual_w <= 0 or actual_h <= 0:
                         actual_h, actual_w = frame.shape[:2]
-                    video_writer = cv2.VideoWriter(fname, fourcc, state.STREAM_FPS, (actual_w, actual_h))
+                    video_writer = cv2.VideoWriter(fname, fourcc, target_fps, (actual_w, actual_h))
                     if not video_writer.isOpened():
                         fourcc = cv2.VideoWriter.fourcc(*'mp4v')
-                        video_writer = cv2.VideoWriter(fname, fourcc, state.STREAM_FPS, (actual_w, actual_h))
+                        video_writer = cv2.VideoWriter(fname, fourcc, target_fps, (actual_w, actual_h))
                     if not video_writer.isOpened():
                         logger.error("Failed to initialize recording writer for %s", fname)
                         video_writer.release()
@@ -222,6 +278,23 @@ def camera_worker(get_pcs_count):
                 except Exception as e:
                     logger.error(f"Callback error: {e}")
 
+            loop_ms = (time.monotonic() - _frame_start) * 1000.0
+            if loop_time_ema_ms <= 0:
+                loop_time_ema_ms = loop_ms
+            else:
+                loop_time_ema_ms = (1.0 - LOOP_TIME_EMA_ALPHA) * loop_time_ema_ms + LOOP_TIME_EMA_ALPHA * loop_ms
+
+            _update_capture_stats(
+                read_failures_streak=read_failures,
+                read_failures_total=total_read_failures,
+                camera_reopens=camera_reopens,
+                avg_loop_ms=round(loop_time_ema_ms, 2),
+                last_loop_ms=round(loop_ms, 2),
+                motion_area=round(motion_area, 2),
+                adaptive_threshold=round(adaptive_threshold, 2),
+                noise_floor=round(noise_floor, 2),
+            )
+
             # Sleep accounting for elapsed processing time to maintain target FPS
             elapsed = time.monotonic() - _frame_start
             sleep_time = max(0.0, target_period - elapsed)
@@ -247,10 +320,21 @@ def camera_worker(get_pcs_count):
             prev_motion_state = False
             motion_hold_until = 0.0
             record_until_monotonic = 0.0
+            noise_floor = float(state.MOTION_THRESHOLD)
 
             with state.lock:
                 state.motion_active = False
                 state.is_recording = False
+
+            _update_capture_stats(
+                read_failures_streak=0,
+                read_failures_total=total_read_failures,
+                camera_reopens=camera_reopens,
+                last_loop_ms=0.0,
+                motion_area=0.0,
+                adaptive_threshold=float(state.MOTION_THRESHOLD),
+                noise_floor=round(noise_floor, 2),
+            )
 
             time.sleep(1.0)
 

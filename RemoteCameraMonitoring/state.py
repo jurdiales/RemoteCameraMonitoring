@@ -42,6 +42,12 @@ MIN_CONTOUR_AREA    = _cfg.get("min_contour_area", 400)
 RECORD_SECONDS      = _cfg.get("record_seconds", 15)
 BLUR_KERNEL         = tuple(_cfg.get("blur_kernel", [21, 21]))
 DILATION_KERNEL     = np.ones(tuple(_cfg.get("dilation_kernel", (5, 5))), np.uint8)
+ENABLE_ADAPTIVE_MOTION   = _cfg.get("enable_adaptive_motion", True)
+MOTION_NOISE_ALPHA       = _cfg.get("motion_noise_alpha", 0.06)
+MOTION_NOISE_MULTIPLIER  = _cfg.get("motion_noise_multiplier", 1.6)
+MOTION_THRESHOLD_MIN_FACTOR = _cfg.get("motion_threshold_min_factor", 0.75)
+MOTION_THRESHOLD_MAX_FACTOR = _cfg.get("motion_threshold_max_factor", 1.35)
+MOTION_HOLD_SECONDS      = _cfg.get("motion_hold_seconds", 0.8)
 
 # Video recording
 ENABLE_RECORDINGS   = _cfg.get("enable_recordings", False)
@@ -66,5 +72,15 @@ last_motion_ts   = None
 event_log        = collections.deque(maxlen=100)
 stats            = {"total_events": 0, "start_time": datetime.datetime.now()}
 active_viewers   = 0
+capture_stats    = {
+    "read_failures_streak": 0,
+    "read_failures_total": 0,
+    "camera_reopens": 0,
+    "avg_loop_ms": 0.0,
+    "last_loop_ms": 0.0,
+    "motion_area": 0.0,
+    "adaptive_threshold": float(MOTION_THRESHOLD),
+    "noise_floor": float(MOTION_THRESHOLD),
+}
 
 on_new_frame_callbacks = []

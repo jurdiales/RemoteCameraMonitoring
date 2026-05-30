@@ -71,6 +71,12 @@ DEFAULT_CONFIG = {
     "record_seconds": 15,
     "blur_kernel": [21, 21],
     "dilation_kernel": [5, 5],
+    "enable_adaptive_motion": True,
+    "motion_noise_alpha": 0.06,
+    "motion_noise_multiplier": 1.6,
+    "motion_threshold_min_factor": 0.75,
+    "motion_threshold_max_factor": 1.35,
+    "motion_hold_seconds": 0.8,
     # video recording
     "enable_recordings": False,
     "max_recordings": 50,

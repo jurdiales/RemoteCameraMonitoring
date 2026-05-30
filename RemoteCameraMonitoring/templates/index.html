@@ -357,6 +357,8 @@
         .stream-row .sk { color: var(--text-dim); }
         .stream-row .sv { color: var(--green); letter-spacing: .03em; }
         .stream-row .sv.dim { color: var(--text-dim); }
+        .stream-row .sv.warn { color: var(--amber); }
+        .stream-row .sv.alert { color: var(--red); }
 
         /* Recordings */
         .rec-list {
@@ -535,6 +537,12 @@
                     <div class="stream-row"><span class="sk">Audio codec</span><span class="sv dim" id="si-acodec">—</span></div>
                     <div class="stream-row"><span class="sk">Received FPS</span><span class="sv dim" id="si-fps">—</span></div>
                     <div class="stream-row"><span class="sk">Video bitrate</span><span class="sv dim" id="si-bitrate">—</span></div>
+                    <div class="stream-row" style="display: none;"><span class="sk">Motion area</span><span class="sv dim" id="si-motion-area">—</span></div>
+                    <div class="stream-row" style="display: none;"><span class="sk">Motion threshold</span><span class="sv dim" id="si-motion-threshold">—</span></div>
+                    <div class="stream-row" style="display: none;"><span class="sk">Noise floor</span><span class="sv dim" id="si-noise-floor">—</span></div>
+                    <div class="stream-row"><span class="sk">Capture loop</span><span class="sv dim" id="si-loop">—</span></div>
+                    <div class="stream-row"><span class="sk">Read failures</span><span class="sv dim" id="si-readfail">—</span></div>
+                    <div class="stream-row"><span class="sk">Camera reopens</span><span class="sv dim" id="si-reopens">—</span></div>
                 </div>
             </div>
 
@@ -1006,6 +1014,80 @@
                 document.getElementById('stat-uptime').textContent = d.uptime.slice(0,5);
                 document.getElementById('uptime-val').textContent  = d.uptime;
                 document.getElementById('port-val').textContent  = d.port;
+
+                // Capture telemetry
+                const cap = d && typeof d.capture === 'object' ? d.capture : null;
+                if (cap) {
+                    const motionArea = Number(cap.motion_area);
+                    const threshold  = Number(cap.adaptive_threshold);
+                    const noiseFloor = Number(cap.noise_floor);
+                    const avgLoopMs  = Number(cap.avg_loop_ms);
+                    const readTotal  = Number(cap.read_failures_total);
+                    const readStreak = Number(cap.read_failures_streak);
+                    const reopens    = Number(cap.camera_reopens);
+                    const motionRatio = Number.isFinite(motionArea) && Number.isFinite(threshold) && threshold > 0
+                        ? (motionArea / threshold)
+                        : null;
+                    const noiseRatio = Number.isFinite(noiseFloor) && Number.isFinite(threshold) && threshold > 0
+                        ? (noiseFloor / threshold)
+                        : null;
+
+                    if (Number.isFinite(motionArea)) {
+                        _set('si-motion-area', `${Math.round(motionArea)} px²`);
+                        if (motionRatio !== null && motionRatio >= 1.0) _alert('si-motion-area');
+                        else if (motionRatio !== null && motionRatio >= 0.7) _warn('si-motion-area');
+                        else _lit('si-motion-area');
+                    } else {
+                        _set('si-motion-area', '—');
+                        _dim('si-motion-area');
+                    }
+
+                    if (Number.isFinite(threshold)) { _set('si-motion-threshold', `${Math.round(threshold)} px²`); _lit('si-motion-threshold'); }
+                    else { _set('si-motion-threshold', '—'); _dim('si-motion-threshold'); }
+
+                    if (Number.isFinite(noiseFloor)) {
+                        _set('si-noise-floor', `${Math.round(noiseFloor)} px²`);
+                        if (noiseRatio !== null && noiseRatio >= 1.0) _alert('si-noise-floor');
+                        else if (noiseRatio !== null && noiseRatio >= 0.85) _warn('si-noise-floor');
+                        else _lit('si-noise-floor');
+                    } else {
+                        _set('si-noise-floor', '—');
+                        _dim('si-noise-floor');
+                    }
+
+                    if (Number.isFinite(avgLoopMs)) {
+                        _set('si-loop', `${avgLoopMs.toFixed(1)} ms`);
+                        if (avgLoopMs >= 90) _alert('si-loop');
+                        else if (avgLoopMs >= 55) _warn('si-loop');
+                        else _lit('si-loop');
+                    } else {
+                        _set('si-loop', '—');
+                        _dim('si-loop');
+                    }
+
+                    if (Number.isFinite(readTotal) && Number.isFinite(readStreak)) {
+                        _set('si-readfail', `${Math.trunc(readTotal)} total · ${Math.trunc(readStreak)} streak`);
+                        if (readStreak >= 3 || readTotal >= 25) _alert('si-readfail');
+                        else if (readStreak > 0 || readTotal > 0) _warn('si-readfail');
+                        else _lit('si-readfail');
+                    } else {
+                        _set('si-readfail', '—');
+                        _dim('si-readfail');
+                    }
+
+                    if (Number.isFinite(reopens)) {
+                        _set('si-reopens', `${Math.trunc(reopens)}`);
+                        if (reopens >= 3) _alert('si-reopens');
+                        else if (reopens > 0) _warn('si-reopens');
+                        else _lit('si-reopens');
+                    } else {
+                        _set('si-reopens', '—');
+                        _dim('si-reopens');
+                    }
+                } else {
+                    ['si-motion-area','si-motion-threshold','si-noise-floor','si-loop','si-readfail','si-reopens']
+                        .forEach(id => { _set(id, '—'); _dim(id); });
+                }
                 
                 // Events
                 const eventSig = Array.isArray(d.events)
@@ -1081,6 +1163,8 @@
 
         function _dim(id)  { document.getElementById(id).className = 'sv dim'; }
         function _lit(id)  { document.getElementById(id).className = 'sv'; }
+        function _warn(id) { document.getElementById(id).className = 'sv warn'; }
+        function _alert(id){ document.getElementById(id).className = 'sv alert'; }
         function _set(id, val) { document.getElementById(id).textContent = val; }
 
         async function fetchStreamStats() {
