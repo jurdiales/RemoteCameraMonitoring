@@ -64,3 +64,6 @@ last_motion_ts   = None
 event_log        = collections.deque(maxlen=100)
 stats            = {"total_events": 0, "start_time": datetime.datetime.now()}
 active_viewers   = 0
+
+on_new_frame_callbacks = []
+

@@ -160,6 +160,12 @@ def camera_worker(get_pcs_count):
                 state.current_jpeg = jpeg_bytes
                 state.motion_active = motion
                 state.is_recording = currently_recording
+            
+            for cb in list(state.on_new_frame_callbacks):
+                try:
+                    cb()
+                except Exception as e:
+                    logger.error(f"Callback error: {e}")
 
             # Sleep accounting for elapsed processing time to maintain target FPS
             elapsed = time.monotonic() - _frame_start
