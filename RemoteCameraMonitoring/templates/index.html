@@ -906,6 +906,24 @@
         // ── State polling ────────────────────────
         let _lastEventsSignature = null;
 
+        function formatEventLabel(rawType) {
+            const type = String(rawType || '').trim().toLowerCase();
+            if (!type) return 'Event detected';
+
+            if (type === 'motion') return 'Motion detected';
+            if (type === 'recording') return 'Recording event';
+
+            const cleaned = type
+                .replace(/[_-]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            if (!cleaned) return 'Event detected';
+
+            const truncated = cleaned.length > 48 ? `${cleaned.slice(0, 48)}...` : cleaned;
+            return `${truncated.charAt(0).toUpperCase()}${truncated.slice(1)} event`;
+        }
+
         function renderEvents(events) {
             const list = document.getElementById('event-list');
             list.textContent = '';
@@ -939,7 +957,7 @@
 
                 const label = document.createElement('span');
                 label.className = 'event-label';
-                label.textContent = 'Motion detected';
+                label.textContent = formatEventLabel(ev && ev.type ? ev.type : '');
 
                 item.appendChild(time);
                 item.appendChild(label);
