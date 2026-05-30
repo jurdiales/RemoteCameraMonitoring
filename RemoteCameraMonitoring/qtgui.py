@@ -19,12 +19,12 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication, QFileDialog
 
 try:
-    from . import server as srv
+    from . import state as srv
     from .utils import list_camera_names, list_audio_input_names
     from .config import load_config, save_config
     from .password import hash_password
 except ImportError:
-    import server as srv
+    import state as srv
     from utils import list_camera_names, list_audio_input_names
     from config import load_config, save_config
     from password import hash_password

@@ -24,12 +24,12 @@ if PLATFORM == 'Windows':
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
 try:
-    from . import server as srv   # installed package
+    from . import state as srv   # installed package
     from .utils import list_camera_names, list_audio_input_names
     from .config import load_config, save_config
     from .password import hash_password
 except ImportError:
-    import server as srv          # plain script
+    import state as srv          # plain script
     from utils import list_camera_names, list_audio_input_names
     from config import load_config, save_config
     from password import hash_password

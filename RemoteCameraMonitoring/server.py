@@ -1,57 +1,46 @@
 """
-Remote Camera Monitoring System — Main Server
-Featuring a motion detection system and video recording
-=====================================================
+Remote Camera Monitoring System — Main Server Entry Point
+=========================================================
 Requisites: pip install flask opencv-python numpy aiortc av sounddevice
-Use: python server.py [options]
+Use: python -m RemoteCameraMonitoring.server [options]
 Local Access: http://localhost:port
 Remote Access: http://<public-ip>:port
 """
 
-import threading
-import time
-import datetime
-import os
 import argparse
-import asyncio
-import queue
-import fractions
-import secrets
-import ssl
-import platform
-import importlib.resources as pkg_resources
-from functools import wraps
-import socket
-import subprocess
 import atexit
-import collections
-import logging
+import os
+import socket
+import ssl
+import subprocess
+import threading
 
-import cv2
-from flask import Flask, Response, jsonify, render_template, request, session, redirect
-from flask_sock import Sock
-import numpy as np
-from aiortc import RTCIceServer, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, AudioStreamTrack, RTCConfiguration
-import av
-import sounddevice as sd
-
-try:    # installed as package
+try:
+    from . import state
+    from .capture import camera_worker
+    from .webrtc import start_aiortc_loop, pcs, cleanup as cleanup_webrtc
+    from .routes import app
     from .utils import list_cameras_opencv
-    from .password import hash_password, verify_password
+    from .password import hash_password
     from .config import load_config
-except ImportError:     # running as plain script
+except ImportError:
+    import state
+    from capture import camera_worker
+    from webrtc import start_aiortc_loop, pcs, cleanup as cleanup_webrtc
+    from routes import app
     from utils import list_cameras_opencv
-    from password import hash_password, verify_password
+    from password import hash_password
     from config import load_config
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PARENT = os.path.abspath(os.path.join(_HERE, os.pardir))
 _cfg = load_config()
+_caddy_proc = None
+
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        # Doesn't even have to be reachable
         s.connect(('10.255.255.255', 1))
         IP = s.getsockname()[0]
     except Exception:
@@ -60,74 +49,6 @@ def get_local_ip():
         s.close()
     return IP
 
-# ─────────────────────────────────────────────
-#  SETTINGS
-# ─────────────────────────────────────────────
-CAMERA_INDEX        = _cfg.get("camera_index", 0)                   # 0 = main webcam, 1 = USB camera, etc. (depens on the system)
-STREAM_WIDTH        = _cfg.get("stream_width", 1280)                # frame width (adjust this setting if your camera doesn't support this resolution)
-STREAM_HEIGHT       = _cfg.get("stream_height", 720)                # frame height (adjust this setting if your camera doesn't support this resolution)
-STREAM_FPS          = _cfg.get("stream_fps", 20)                    # stream fps
-FLASK_PORT          = _cfg.get("flask_port", 8090)                  # port for the web interface
-
-# Audio
-AUDIO_DEVICE_INDEX  = _cfg.get("audio_device_index", None)          # None = system default mic; set to int to pick a specific device
-AUDIO_SAMPLE_RATE   = _cfg.get("audio_sample_rate", 48000)          # Hz  (48 kHz is the WebRTC standard)
-AUDIO_CHANNELS      = _cfg.get("audio_channels", 1)                 # 1 = mono, 2 = stereo
-AUDIO_CHUNK_FRAMES  = _cfg.get("audio_chunk_frames", 960)           # samples per chunk (20 ms at 48 kHz — matches Opus frame size)
-
-# Motion detection
-ENABLE_MOTION_DET   = _cfg.get("enable_motion_det", False)          # enable motion detection
-MOTION_THRESHOLD    = _cfg.get("motion_threshold", 4000)            # total pixel area to consider for motion detection
-MIN_CONTOUR_AREA    = _cfg.get("min_contour_area", 400)             # minimum area of an individual contour to be taken into account
-RECORD_SECONDS      = _cfg.get("record_seconds", 15)                # seconds it continues recording after detecting motion
-BLUR_KERNEL         = tuple(_cfg.get("blur_kernel", [21, 21]))      # smoothing to reduce false positives
-DILATION_KERNEL     = np.ones(tuple(_cfg.get("dilation_kernel", (5, 5))), np.uint8) # dilation to connect motion areas
-
-# Video recording
-ENABLE_RECORDINGS   = _cfg.get("enable_recordings", False)          # enable recording
-RECORDINGS_DIR      = os.path.join(os.getcwd(), "recordings")       # stored relative to CWD at launch
-MAX_RECORDINGS      = _cfg.get("max_recordings", 50)                # maximum number of recordings to store
-
-# Authentication
-LOGIN_PASSWORD_HASH = _cfg.get("login_password_hash", "")           # PBKDF2-SHA256 hashed password
-PASSWORD_HASH_ENV   = "REMOTE_CAMERA_PASSWORD_HASH"
-# ─────────────────────────────────────────────
-
-# Resolve template folder from installed package data
-try:
-    _TEMPLATES_DIR = str(pkg_resources.files("RemoteCameraMonitoring").joinpath("templates"))
-except ModuleNotFoundError:
-    _TEMPLATES_DIR = "templates"
-app = Flask(__name__, template_folder=_TEMPLATES_DIR)
-app.secret_key = secrets.token_hex(32)  # random per-run; all sessions are invalidated on restart
-app.config.update(
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Strict",
-)
-sock = Sock(app)  # WebSocket support (fallback stream)
-
-# ── CSRF token generation ──
-@app.context_processor
-def _inject_csrf():
-    """Make csrf_token() available in all templates."""
-    def csrf_token():
-        if "_csrf_token" not in session:
-            session["_csrf_token"] = secrets.token_hex(32)
-        return session["_csrf_token"]
-    return {"csrf_token": csrf_token}
-os.makedirs(RECORDINGS_DIR, exist_ok=True)
-
-# Global status shared between threads
-_lock             = threading.Lock()
-_current_frame    = None
-_current_jpeg     = None             # pre-encoded JPEG bytes (shared by MJPEG + WS consumers)
-_motion_active    = False
-_is_recording     = False
-_last_motion_ts   = None
-_event_log        = collections.deque(maxlen=100)  # deque of dict {time, type}
-_stats            = {"total_events": 0, "start_time": datetime.datetime.now()}
-_active_viewers   = 0
-_caddy_proc       = None
 
 def _cleanup_caddy():
     global _caddy_proc
@@ -141,651 +62,27 @@ def _cleanup_caddy():
             except Exception:
                 pass
 
+
 atexit.register(_cleanup_caddy)
-
-
-async def _close_all_pcs():
-    """Close all active WebRTC peer connections."""
-    coros = [pc.close() for pc in list(_pcs)]
-    if coros:
-        await asyncio.gather(*coros, return_exceptions=True)
-    _pcs.clear()
-
-
-def _cleanup_webrtc():
-    """Gracefully shut down the aiortc event loop and all peer connections."""
-    if _aiortc_loop.is_running():
-        future = asyncio.run_coroutine_threadsafe(_close_all_pcs(), _aiortc_loop)
-        try:
-            future.result(timeout=5)
-        except Exception:
-            pass
-        _aiortc_loop.call_soon_threadsafe(_aiortc_loop.stop)
-
-
-atexit.register(_cleanup_webrtc)
-
-
-def is_camera_needed():
-    with _lock:
-        return ENABLE_MOTION_DET or (_active_viewers > 0) or (len(_pcs) > 0)
-
-
-# ══════════════════════════════════════════════════════════════
-#  MAIN THREAD
-# ══════════════════════════════════════════════════════════════
-def _open_camera(index: int) -> cv2.VideoCapture:
-    """Open a camera with the best available backend for the current OS."""
-    _os = platform.system()
-    if _os == "Windows":
-        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, 0]
-    elif _os == "Linux":
-        backends = [cv2.CAP_V4L2, 0]
-    else:  # macOS and others
-        backends = [cv2.CAP_AVFOUNDATION, 0]
-
-    for backend in backends:
-        cap = cv2.VideoCapture(index, backend) if backend != 0 else cv2.VideoCapture(index)
-        if cap.isOpened():
-            return cap
-        cap.release()
-
-    # Last-resort fallback
-    return cv2.VideoCapture(index)
-
-
-def camera_worker():
-    global _current_frame, _motion_active, _is_recording, _last_motion_ts
-
-    logger = logging.getLogger(__name__)
-    cap = None
-    prev_gray = None
-    video_writer = None
-    record_until = None
-
-    while True:
-        try:
-            needed = is_camera_needed()
-            
-            if not needed:
-                if cap is not None:
-                    cap.release()
-                    cap = None
-                    with _lock:
-                        _current_frame = None  # clear last frame
-                time.sleep(0.2)
-                continue
-                
-            if cap is None:
-                cap = _open_camera(CAMERA_INDEX)
-                if cap is not None and cap.isOpened():
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, STREAM_WIDTH)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, STREAM_HEIGHT)
-                    cap.set(cv2.CAP_PROP_FPS, STREAM_FPS)
-                else:
-                    if cap is not None:
-                        cap.release()
-                    cap = None
-                    time.sleep(1.0)
-                    continue
-
-            ret, frame = cap.read()
-            if not ret:
-                time.sleep(0.05)
-                continue
-
-            _frame_start = time.monotonic()
-            now = datetime.datetime.now()
-
-            # ── Motion detection ──────────────────────────
-            motion  = False
-
-            if ENABLE_MOTION_DET:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                gray = cv2.GaussianBlur(gray, BLUR_KERNEL, 0)
-
-                if prev_gray is not None:
-                    delta = cv2.absdiff(prev_gray, gray)
-                    thresh = cv2.threshold(delta, 25, 255, cv2.THRESH_BINARY)[1]
-                    thresh = cv2.dilate(thresh, DILATION_KERNEL, iterations=2)
-                    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    total_area = sum(cv2.contourArea(c) for c in contours)
-
-                    if total_area > MOTION_THRESHOLD:
-                        motion       = True
-                        record_until = now + datetime.timedelta(seconds=RECORD_SECONDS)
-
-                        # Register event
-                        if not _motion_active:
-                            ts_str = now.strftime("%H:%M:%S")
-                            with _lock:
-                                _event_log.appendleft({"time": ts_str, "type": "motion"})
-                                _stats["total_events"] += 1
-                            _last_motion_ts = now
-
-                        # Draw rectangles over moving objects
-                        height, width, _ = frame.shape
-                        xmin, ymin, xmax, ymax = width, height, 0, 0
-                        for c in contours:
-                            if cv2.contourArea(c) > MIN_CONTOUR_AREA:
-                                x, y, w, h = cv2.boundingRect(c)
-                                # cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 230, 80), 2)
-                                xmin = min(xmin, x)
-                                ymin = min(ymin, y)
-                                xmax = max(xmax, x + w)
-                                ymax = max(ymax, y + h)
-                        if xmax > 0 and ymax > 0:
-                            cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (38, 167, 255), 2)
-
-                prev_gray = gray
-
-            # ── Recording ────────────────────────────────────────
-            currently_recording = ENABLE_RECORDINGS and record_until is not None and now < record_until
-
-            if currently_recording:
-                if video_writer is None:
-                    _cleanup_old_recordings()
-                    fname = os.path.join(RECORDINGS_DIR, f"mov_{now.strftime('%Y%m%d_%H%M%S')}.mp4")
-                    # 'avc1' (H.264) works on Windows/macOS; fall back to 'mp4v' on Linux
-                    # if the encoder is unavailable.
-                    fourcc = cv2.VideoWriter.fourcc(*'avc1')
-                    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    video_writer = cv2.VideoWriter(fname, fourcc, STREAM_FPS, (actual_w, actual_h))
-                    if not video_writer.isOpened():
-                        # avc1 unavailable — fall back to MPEG-4 Part 2
-                        fourcc = cv2.VideoWriter.fourcc(*'mp4v')
-                        video_writer = cv2.VideoWriter(fname, fourcc, STREAM_FPS, (actual_w, actual_h))
-                video_writer.write(frame)
-            else:
-                if video_writer is not None:
-                    video_writer.release()
-                    video_writer = None
-
-            # ── Screen overlay ────────────────────────────────────
-            _draw_overlay(frame, now, motion, currently_recording)
-
-            # ── Encode JPEG once for all MJPEG/WS consumers ──────
-            ret, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
-            jpeg_bytes = buf.tobytes() if ret else None
-
-            # ── Update global state ───────────────────────────────
-            with _lock:
-                _current_frame  = frame
-                _current_jpeg   = jpeg_bytes
-                _motion_active  = motion
-                _is_recording   = currently_recording
-
-            # Sleep accounting for elapsed processing time to maintain target FPS
-            elapsed = time.monotonic() - _frame_start
-            sleep_time = max(0, (1 / STREAM_FPS) - elapsed)
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-        except Exception as exc:
-            logger.exception("camera_worker error: %s — restarting loop", exc)
-            if cap is not None:
-                try:
-                    cap.release()
-                except Exception:
-                    pass
-                cap = None
-            if video_writer is not None:
-                try:
-                    video_writer.release()
-                except Exception:
-                    pass
-                video_writer = None
-            time.sleep(1.0)
-
-
-def _draw_overlay(frame, ts, motion, recording):
-    h, w = frame.shape[:2]
-
-    # Semi-transparent top bar
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (w, 48), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
-
-    # Date and time
-    cv2.putText(frame, ts.strftime("%d/%m/%Y  %H:%M:%S"), (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (220, 220, 220), 2)
-
-    # Motion status
-    if motion:
-        label  = "MOTION DETECTED"
-        color  = (0, 60, 255)
-        # Red flashing border
-        cv2.rectangle(frame, (0, 0), (w - 1, h - 1), (0, 0, 220), 6)
-    else:
-        label = "LIVE"
-        color = (0, 200, 80)
-
-    cv2.putText(frame, label, (w - 340, 32),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.72, color, 2)
-
-    # REC indicator
-    if recording:
-        cv2.circle(frame, (w - 28, h - 24), 8, (0, 0, 240), -1)
-        cv2.putText(frame, "REC", (w - 62, h - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 240), 2)
-
-
-def _cleanup_old_recordings():
-    files = sorted(
-        [f for f in os.listdir(RECORDINGS_DIR) if f.endswith(".mp4")],
-        key=lambda f: os.path.getmtime(os.path.join(RECORDINGS_DIR, f))
-    )
-    while len(files) >= MAX_RECORDINGS:
-        os.remove(os.path.join(RECORDINGS_DIR, files.pop(0)))
-
-
-# ══════════════════════════════════════════════════════════════
-#  WebRTC STREAM GENERATOR
-# ══════════════════════════════════════════════════════════════
-_pcs = set()
-_aiortc_loop = asyncio.new_event_loop()
-
-
-class CameraVideoTrack(VideoStreamTrack):
-    def __init__(self):
-        super().__init__()
-
-    async def recv(self):
-        pts, time_base = await self.next_timestamp()
-        frame = None
-
-        while frame is None:
-            with _lock:
-                frame = _current_frame
-            if frame is None:
-                await asyncio.sleep(1 / STREAM_FPS)
-
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        video_frame = av.VideoFrame.from_ndarray(rgb_frame, format="rgb24") # pyright: ignore[reportArgumentType]
-        video_frame.pts = pts
-        video_frame.time_base = time_base
-        return video_frame
-
-
-class MicrophoneAudioTrack(AudioStreamTrack):
-    """
-    Captures PCM audio from the system microphone using sounddevice and
-    delivers av.AudioFrame objects to the WebRTC peer connection.
-    Each chunk is AUDIO_CHUNK_FRAMES samples long (20 ms at 48 kHz),
-    which matches the Opus codec's preferred frame size.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self._queue: queue.Queue = queue.Queue(maxsize=50)
-        self._pts = 0
-        sd.default.device = AUDIO_DEVICE_INDEX
-
-        # Query the device's native sample rate so we never request an
-        # unsupported rate (e.g. many webcam mics only support 16 000 Hz).
-        try:
-            dev_info = sd.query_devices(AUDIO_DEVICE_INDEX, kind="input")
-            self._native_rate: int = int(dev_info["default_samplerate"])  # type: ignore[index]
-        except Exception:
-            self._native_rate = AUDIO_SAMPLE_RATE   # safe fallback
-
-        # Scale the blocksize to keep ~20 ms chunks at the native rate.
-        native_blocksize = max(1, round(
-            self._native_rate * AUDIO_CHUNK_FRAMES / AUDIO_SAMPLE_RATE
-        ))
-
-        # Open the input stream; callback pushes raw PCM into _queue.
-        self._stream = sd.InputStream(
-            samplerate=self._native_rate,
-            channels=AUDIO_CHANNELS,
-            dtype="int16",
-            blocksize=native_blocksize,
-            device=AUDIO_DEVICE_INDEX,
-            callback=self._sd_callback,
-        )
-        self._stream.start()
-
-    def _sd_callback(self, indata, frames, time_info, status):
-        """Called by sounddevice from a C audio thread — keep it fast."""
-        if not self._queue.full():
-            self._queue.put_nowait(indata.copy())
-
-    def _resample(self, pcm: np.ndarray) -> np.ndarray:
-        """Linear-interpolation resample from _native_rate → AUDIO_SAMPLE_RATE.
-
-        Quality is sufficient for voice/surveillance audio and requires no
-        extra dependencies beyond numpy (already installed).
-        """
-        n_in  = pcm.shape[0]
-        n_out = round(n_in * AUDIO_SAMPLE_RATE / self._native_rate)
-        xi = np.linspace(0.0, 1.0, n_in)
-        xo = np.linspace(0.0, 1.0, n_out)
-        if AUDIO_CHANNELS == 1:
-            return np.interp(xo, xi, pcm[:, 0]).astype(np.int16).reshape(-1, 1)
-        return np.column_stack([
-            np.interp(xo, xi, pcm[:, ch]).astype(np.int16)
-            for ch in range(AUDIO_CHANNELS)
-        ])
-
-    async def recv(self):
-        # Wait for a PCM chunk without blocking the event loop
-        loop = asyncio.get_running_loop()
-        pcm = await loop.run_in_executor(None, self._queue.get)
-
-        if pcm is None:
-            raise Exception("Track stopped")
-
-        # Resample to the WebRTC target rate when the device runs at a
-        # different native rate (e.g. webcam mic at 16 000 Hz → 48 000 Hz).
-        if self._native_rate != AUDIO_SAMPLE_RATE:
-            pcm = self._resample(pcm)
-
-        # pcm shape: (frames, channels) — av expects (channels, frames)
-        samples = pcm.T
-        layout = "mono" if AUDIO_CHANNELS == 1 else "stereo"
-        audio_frame = av.AudioFrame.from_ndarray(samples, format="s16", layout=layout)  # pyright: ignore[reportArgumentType]
-        audio_frame.sample_rate = AUDIO_SAMPLE_RATE
-        audio_frame.pts         = self._pts
-        audio_frame.time_base   = fractions.Fraction(1, AUDIO_SAMPLE_RATE)
-        self._pts              += AUDIO_CHUNK_FRAMES
-        return audio_frame
-
-    def stop(self):
-        if hasattr(self, '_stream'):
-            self._stream.stop()
-            self._stream.close()
-            
-        # Empty the queue and wake up any blocked get() with a None sentinel
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-            except queue.Empty:
-                break
-        try:
-            self._queue.put_nowait(None)
-        except queue.Full:
-            pass
-            
-        super().stop()
-
-
-def _start_aiortc_loop():
-    asyncio.set_event_loop(_aiortc_loop)
-    _aiortc_loop.run_forever()
-
-
-async def _handle_offer(data):
-    offer = RTCSessionDescription(sdp=data["sdp"], type=data["type"])
-    pc = RTCPeerConnection(
-        configuration=RTCConfiguration(
-            iceServers=[RTCIceServer("stun:stun.l.google.com:19302")]
-        )
-    )
-    _pcs.add(pc)
-
-    @pc.on("connectionstatechange")
-    async def on_connectionstatechange():
-        # "disconnected" is transient and can self-recover; only close on terminal states
-        if pc.connectionState in ("failed", "closed"):
-            await pc.close()
-            _pcs.discard(pc)
-
-    # Wait up to 5 seconds for the camera hardware to initialize before trying to lock the audio device
-    deadline_cam = _aiortc_loop.time() + 5.0
-    while _aiortc_loop.time() < deadline_cam:
-        with _lock:
-            if _current_frame is not None:
-                break
-        await asyncio.sleep(0.1)
-
-    pc.addTrack(CameraVideoTrack())
-    if (AUDIO_DEVICE_INDEX is None) or (AUDIO_DEVICE_INDEX >= 0):
-        try:
-            pc.addTrack(MicrophoneAudioTrack())
-        except Exception as e:
-            print(f"Warning: Failed to open microphone: {e}")
-            
-    await pc.setRemoteDescription(offer)
-    answer = await pc.createAnswer()
-    await pc.setLocalDescription(answer)
-
-    # Wait for ICE gathering to finish (up to 5 s) so STUN server-reflexive
-    # candidates are included in the SDP — required for remote connections.
-    deadline = _aiortc_loop.time() + 5.0
-    while pc.iceGatheringState != "complete" and _aiortc_loop.time() < deadline:
-        await asyncio.sleep(0.1)
-
-    return {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
-
-
-def _run_coroutine(coro, timeout=15):
-    return asyncio.run_coroutine_threadsafe(coro, _aiortc_loop).result(timeout=timeout)
-
-
-# ══════════════════════════════════════════════════════════════
-#  MJPEG STREAM GENERATOR
-# ══════════════════════════════════════════════════════════════
-def _mjpeg_generator():
-    global _active_viewers
-    with _lock:
-        _active_viewers += 1
-    try:
-        while True:
-            with _lock:
-                jpeg = _current_jpeg
-
-            if jpeg is None:
-                time.sleep(0.05)
-                continue
-
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
-            )
-            time.sleep(1 / STREAM_FPS)
-    finally:
-        with _lock:
-            _active_viewers -= 1
-
-
-# ══════════════════════════════════════════════════════════════
-#  AUTHENTICATION
-# ══════════════════════════════════════════════════════════════
-def require_auth(f):
-    """Gate a route behind the configured password. No-op when LOGIN_PASSWORD_HASH is empty."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if LOGIN_PASSWORD_HASH and not session.get("authenticated"):
-            # Return JSON 401 for API / AJAX endpoints; redirect pages to login
-            if request.path.startswith("/api/") or request.is_json:
-                return jsonify({"error": "Unauthorized"}), 401
-            return redirect("/login")
-        return f(*args, **kwargs)
-    return decorated
-
-
-# ── Simple in-memory rate limiter for login attempts ──
-_login_attempts = {}  # ip -> (count, first_attempt_time)
-_LOGIN_MAX_ATTEMPTS = 5
-_LOGIN_WINDOW_SECONDS = 300  # 5-minute window
-
-def _is_rate_limited(ip: str) -> bool:
-    now = time.time()
-    if ip in _login_attempts:
-        count, first_ts = _login_attempts[ip]
-        if now - first_ts > _LOGIN_WINDOW_SECONDS:
-            del _login_attempts[ip]
-            return False
-        return count >= _LOGIN_MAX_ATTEMPTS
-    return False
-
-def _record_failed_attempt(ip: str):
-    now = time.time()
-    if ip in _login_attempts:
-        count, first_ts = _login_attempts[ip]
-        if now - first_ts > _LOGIN_WINDOW_SECONDS:
-            _login_attempts[ip] = (1, now)
-        else:
-            _login_attempts[ip] = (count + 1, first_ts)
-    else:
-        _login_attempts[ip] = (1, now)
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if not LOGIN_PASSWORD_HASH:
-        return redirect("/")
-    if request.method == "POST":
-        # CSRF validation
-        token = request.form.get("_csrf_token", "")
-        if not token or token != session.get("_csrf_token"):
-            return render_template("login.html", error="Invalid request. Please try again."), 403
-        client_ip = request.remote_addr or "unknown"
-        if _is_rate_limited(client_ip):
-            return render_template("login.html", error="Too many attempts. Try again later."), 429
-        pwd = request.form.get("password", "")
-        if verify_password(pwd, LOGIN_PASSWORD_HASH):
-            _login_attempts.pop(client_ip, None)
-            session.pop("_csrf_token", None)  # rotate token on login
-            session["authenticated"] = True
-            session["from_login"] = True
-            return redirect("/")
-        _record_failed_attempt(client_ip)
-        return render_template("login.html", error="Incorrect password")
-    return render_template("login.html", error=None)
-
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect("/login" if LOGIN_PASSWORD_HASH else "/")
-
-
-# ══════════════════════════════════════════════════════════════
-#  FLASK ROUTES
-# ══════════════════════════════════════════════════════════════
-@app.route("/health")
-def health():
-    """Unauthenticated health-check for monitoring tools and load balancers."""
-    return jsonify({"status": "ok"}), 200
-
-
-@app.route("/")
-@require_auth
-def index():
-    from_login = session.pop("from_login", False)
-    audio_enabled = not (AUDIO_DEVICE_INDEX is not None and AUDIO_DEVICE_INDEX == -1)
-    return render_template("index.html", auth_enabled=bool(LOGIN_PASSWORD_HASH), from_login=from_login,
-            audio_enabled=audio_enabled)
-
-
-@app.route("/stream")
-@require_auth
-def stream():
-    """MJPEG fallback — kept for backward compatibility / direct URL access."""
-    return Response(
-        _mjpeg_generator(),
-        mimetype="multipart/x-mixed-replace; boundary=frame"
-    )
-
-
-@sock.route("/ws/stream")
-def ws_stream(ws):
-    global _active_viewers
-    """WebSocket endpoint that pushes JPEG frames as binary messages.
-
-    The client receives binary ArrayBuffers and renders them as
-    Blob URLs on an <img> element — same NAT-friendliness as MJPEG
-    but with lower latency (~150 ms vs ~400 ms) and a clean
-    reconnection mechanism.
-    """
-    # Auth check — session is available during the HTTP upgrade handshake
-    if LOGIN_PASSWORD_HASH and not session.get("authenticated"):
-        return  # flask-sock closes the connection on function return
-
-    with _lock:
-        _active_viewers += 1
-
-    try:
-        while True:
-            with _lock:
-                jpeg = _current_jpeg
-
-            if jpeg is None:
-                time.sleep(0.05)
-                continue
-
-            ws.send(jpeg)
-
-            time.sleep(1 / STREAM_FPS)
-    except Exception:
-        pass  # Client disconnected — exit the loop cleanly
-    finally:
-        with _lock:
-            _active_viewers -= 1
-
-
-@app.route("/offer", methods=["POST"])
-@require_auth
-def offer():
-    data = request.get_json()
-    if not data or "sdp" not in data or "type" not in data:
-        return jsonify({"error": "Invalid SDP offer"}), 400
-    try:
-        answer = _run_coroutine(_handle_offer(data))
-    except TimeoutError:
-        return jsonify({"error": "WebRTC negotiation timed out"}), 504
-    except Exception as e:
-        logging.getLogger(__name__).error("WebRTC offer failed: %s", e)
-        return jsonify({"error": "WebRTC setup failed"}), 500
-    return jsonify(answer)
-
-
-@app.route("/api/status")
-@require_auth
-def api_status():
-    uptime = datetime.datetime.now() - _stats["start_time"]
-    h, rem = divmod(int(uptime.total_seconds()), 3600)
-    m, s   = divmod(rem, 60)
-    with _lock:
-        return jsonify({
-            "motion": _motion_active,
-            "recording": _is_recording,
-            "total_events": _stats["total_events"],
-            "uptime": f"{h:02d}:{m:02d}:{s:02d}",
-            "events": list(_event_log)[:20],
-            "port": FLASK_PORT,
-        })
-
-
-@app.route("/api/recordings")
-@require_auth
-def api_recordings():
-    files = []
-    for f in sorted(os.listdir(RECORDINGS_DIR), reverse=True):
-        if f.endswith(".mp4"):
-            path = os.path.join(RECORDINGS_DIR, f)
-            size_mb = os.path.getsize(path) / (1024 * 1024)
-            files.append({"name": f, "size": f"{size_mb:.1f} MB"})
-    return jsonify(files)
+atexit.register(cleanup_webrtc)
 
 
 # ══════════════════════════════════════════════════════════════
 #  MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════
 def main():
-    global CAMERA_INDEX, STREAM_WIDTH, STREAM_HEIGHT, STREAM_FPS
-    global AUDIO_DEVICE_INDEX, ENABLE_RECORDINGS, ENABLE_MOTION_DET
-    global FLASK_PORT, LOGIN_PASSWORD_HASH, RECORDINGS_DIR
+    global _caddy_proc
 
     parser = argparse.ArgumentParser(description="RemoteCamera — headless server")
     parser.add_argument("-s", "--setup", action="store_true", help="Run camera setup utility", required=False)
-    parser.add_argument("-c", "--camera", type=int, default=CAMERA_INDEX, help="Camera index")
-    parser.add_argument("--width", type=int, default=STREAM_WIDTH,  help="Stream width in pixels")
-    parser.add_argument("--height", type=int, default=STREAM_HEIGHT, help="Stream height in pixels")
-    parser.add_argument("--fps", type=int, default=STREAM_FPS, help="Stream frames per second")
+    parser.add_argument("-c", "--camera", type=int, default=state.CAMERA_INDEX, help="Camera index")
+    parser.add_argument("--width", type=int, default=state.STREAM_WIDTH, help="Stream width in pixels")
+    parser.add_argument("--height", type=int, default=state.STREAM_HEIGHT, help="Stream height in pixels")
+    parser.add_argument("--fps", type=int, default=state.STREAM_FPS, help="Stream frames per second")
     parser.add_argument("-a", "--audio-device", type=int, default=None, help="Audio input device index (default: system default)")
-    parser.add_argument("-r", "--record", action="store_true", default=ENABLE_RECORDINGS, help="Enable recordings")
-    parser.add_argument("-m", "--motion", action="store_true", default=ENABLE_MOTION_DET, help="Enable motion detection")
-    parser.add_argument("-p", "--port", type=int, default=FLASK_PORT, help="Flask server port")
+    parser.add_argument("-r", "--record", action="store_true", default=state.ENABLE_RECORDINGS, help="Enable recordings")
+    parser.add_argument("-m", "--motion", action="store_true", default=state.ENABLE_MOTION_DET, help="Enable motion detection")
+    parser.add_argument("-p", "--port", type=int, default=state.FLASK_PORT, help="Flask server port")
     parser.add_argument("--password", type=str, default=None, metavar="PWD", help="Password to protect the web interface (leave empty to disable)")
     parser.add_argument("--password-hash", type=str, default=None, metavar="HASH", help="Precomputed password hash; or set REMOTE_CAMERA_PASSWORD_HASH instead")
     parser.add_argument("--ssl-cert", type=str, default=None, metavar="PATH", help="Path to TLS certificate file for HTTPS")
@@ -808,27 +105,28 @@ def main():
                 print(f"\t{idx + 1}: Camera at port {cam.port} with resolution {cam.width}x{cam.height}")
         exit(0)
 
-    CAMERA_INDEX = args.camera
-    STREAM_WIDTH = args.width
-    STREAM_HEIGHT = args.height
-    STREAM_FPS = args.fps
+    # Apply CLI overrides to shared state
+    state.CAMERA_INDEX = args.camera
+    state.STREAM_WIDTH = args.width
+    state.STREAM_HEIGHT = args.height
+    state.STREAM_FPS = args.fps
     if args.audio_device is not None:
-        AUDIO_DEVICE_INDEX = args.audio_device
-    ENABLE_RECORDINGS = args.record
-    ENABLE_MOTION_DET = args.motion
-    FLASK_PORT = args.port
+        state.AUDIO_DEVICE_INDEX = args.audio_device
+    state.ENABLE_RECORDINGS = args.record
+    state.ENABLE_MOTION_DET = args.motion
+    state.FLASK_PORT = args.port
 
-    env_hash = os.getenv(PASSWORD_HASH_ENV, "")
+    env_hash = os.getenv(state.PASSWORD_HASH_ENV, "")
     if args.password:
         print("[!] WARNING: --password is visible in the process list (ps aux).")
         print("    Prefer --password-hash or the REMOTE_CAMERA_PASSWORD_HASH env var.")
-        LOGIN_PASSWORD_HASH = hash_password(args.password)
+        state.LOGIN_PASSWORD_HASH = hash_password(args.password)
     elif args.password_hash:
-        LOGIN_PASSWORD_HASH = args.password_hash
+        state.LOGIN_PASSWORD_HASH = args.password_hash
     elif env_hash:
-        LOGIN_PASSWORD_HASH = env_hash
+        state.LOGIN_PASSWORD_HASH = env_hash
     else:
-        LOGIN_PASSWORD_HASH = ""
+        state.LOGIN_PASSWORD_HASH = ""
 
     if (args.ssl_cert and not args.ssl_key) or (args.ssl_key and not args.ssl_cert):
         parser.error("Both --ssl-cert and --ssl-key are required to enable HTTPS")
@@ -839,62 +137,67 @@ def main():
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(args.ssl_cert, args.ssl_key)
 
-    # Mark session cookie Secure when served over TLS (Caddy or direct SSL)
+    # Mark session cookie Secure when served over TLS
     if use_caddy or ssl_context:
         app.config["SESSION_COOKIE_SECURE"] = True
 
-    # Re-compute RECORDINGS_DIR in case --port or CWD changed
-    RECORDINGS_DIR = os.path.join(os.getcwd(), "recordings")
-    os.makedirs(RECORDINGS_DIR, exist_ok=True)
+    # Re-compute RECORDINGS_DIR in case CWD changed
+    state.RECORDINGS_DIR = os.path.join(os.getcwd(), "recordings")
+    os.makedirs(state.RECORDINGS_DIR, exist_ok=True)
 
-    _audio_label = f"device index {AUDIO_DEVICE_INDEX}" if AUDIO_DEVICE_INDEX is not None else "system default"
-    if LOGIN_PASSWORD_HASH:
+    # ── Banner ────────────────────────────────────────────────
+    _audio_label = f"device index {state.AUDIO_DEVICE_INDEX}" if state.AUDIO_DEVICE_INDEX is not None else "system default"
+    if state.LOGIN_PASSWORD_HASH:
         _auth_label = "enabled (hashed password configured)"
     else:
         _auth_label = "DISABLED (no password set)"
-    _https_label = f"https://localhost" if use_caddy else f"https://localhost:{FLASK_PORT}" if ssl_context else f"http://localhost:{FLASK_PORT}"
+    _https_label = (
+        "https://localhost" if use_caddy
+        else f"https://localhost:{state.FLASK_PORT}" if ssl_context
+        else f"http://localhost:{state.FLASK_PORT}"
+    )
 
     print("=" * 55)
     print("  Remote Camera Monitoring System")
     print("=" * 55)
-    print(f"  Camera:        index {CAMERA_INDEX}")
-    print(f"  Resolution:    {STREAM_WIDTH}x{STREAM_HEIGHT} @ {STREAM_FPS}fps")
+    print(f"  Camera:        index {state.CAMERA_INDEX}")
+    print(f"  Resolution:    {state.STREAM_WIDTH}x{state.STREAM_HEIGHT} @ {state.STREAM_FPS}fps")
     print(f"  Microphone:    {_audio_label}")
     print(f"  Auth:          {_auth_label}")
-    print(f"  Recordings:    {RECORDINGS_DIR}")
+    print(f"  Recordings:    {state.RECORDINGS_DIR}")
     print(f"  Local access:  {_https_label}")
     print("  Remote access: see SETUP.md")
     print("=" * 55)
 
+    # ── Caddy reverse proxy (optional) ────────────────────────
     if use_caddy:
         local_ip = get_local_ip()
         caddyfile_path = os.path.join(_PARENT, "resources", "Caddyfile")
         caddy_content = f"""localhost {{
-    reverse_proxy localhost:{FLASK_PORT}
+    reverse_proxy localhost:{state.FLASK_PORT}
 }}
 
 # local network IP
 {local_ip} {{
     tls internal
-    reverse_proxy localhost:{FLASK_PORT}
+    reverse_proxy localhost:{state.FLASK_PORT}
 }}
 """
         with open(caddyfile_path, "w") as f:
             f.write(caddy_content)
-            
+
         print(f"[*] Starting Caddy server for https://localhost and https://{local_ip}...")
         success = False
         try:
             caddy_exe = _cfg.get("caddy_exe", "")
             if os.path.exists(caddy_exe):
-                global _caddy_proc
                 _caddy_proc = subprocess.Popen([caddy_exe, "run"], cwd=os.path.dirname(caddy_exe))
                 success = True
             else:
                 print("[!] caddy.exe not found. Please download it and place it in this folder.")
         except Exception as e:
             print(f"[!] Failed to start Caddy: {e}")
-        
+
         if not success:
             if args.ssl_cert and args.ssl_key:
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -903,13 +206,15 @@ def main():
             else:
                 print("[!] WARNING: No SSL context will be available.")
 
-    t = threading.Thread(target=camera_worker, daemon=True)
+    # ── Start background threads ──────────────────────────────
+    t = threading.Thread(target=camera_worker, args=(lambda: len(pcs),), daemon=True)
     t.start()
 
-    aiortc_thread = threading.Thread(target=_start_aiortc_loop, daemon=True)
+    aiortc_thread = threading.Thread(target=start_aiortc_loop, daemon=True)
     aiortc_thread.start()
 
-    app.run(host="0.0.0.0", port=FLASK_PORT, threaded=True, debug=False, use_reloader=False, ssl_context=ssl_context)
+    app.run(host="0.0.0.0", port=state.FLASK_PORT, threaded=True, debug=False,
+            use_reloader=False, ssl_context=ssl_context)
 
 
 if __name__ == "__main__":
